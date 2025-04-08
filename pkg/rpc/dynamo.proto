@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+package rpc;
+option go_package = "github.com/yourusername/DynamoMiniGo/pkg/rpc"; // Adjust path
+
+message NodeMeta {
+    string node_id = 1; // e.g., hash of ip:port
+    string ip = 2;
+    int32 port = 3;
+}
+
+// Placeholder requests/responses
+message PingRequest {}
+message PingResponse {
+    string message = 1;
+}
+
+service NodeService {
+    rpc Ping(PingRequest) returns (PingResponse);
+    // Add more RPCs in later iterations (Get, Put, Replicate, Gossip...)
+}
