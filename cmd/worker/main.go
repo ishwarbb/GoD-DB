@@ -14,7 +14,7 @@ import (
 
 func main() {
 	port := flag.Int("port", 50051, "the port to listen on")
-	redisPort := flag.Int("redisport", 6379, "the redis port")
+	redisPort := flag.Int("redisport", 63079, "the redis port")
 	flag.Parse()
 
 	lis, err := net.Listen("tcp", fmt.Sprintf("localhost:%d", *port))

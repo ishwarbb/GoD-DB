@@ -34,7 +34,7 @@ clean:
 
 # Example run commands (not part of the build process, but helpful)
 run-worker: worker
-	$(BIN_DIR)/worker -port 8080 -redisport 6379
+	$(BIN_DIR)/worker -port 8080 -redisport 63079
 
 run-client: client
 	$(BIN_DIR)/client -server localhost:8080

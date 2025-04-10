@@ -3,32 +3,29 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"log"
 	"time"
 
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
-	"no.cap/goddb/pkg/rpc"
+	"no.cap/goddb/pkg/client"
 )
 
 func main() {
 	serverAddr := flag.String("server", "localhost:50051", "the address to connect to")
 	flag.Parse()
 
-	conn, err := grpc.Dial(*serverAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	client, err := client.NewClient(*serverAddr)
 	if err != nil {
-		log.Fatalf("did not connect: %v", err)
+		log.Fatalf("failed to create client: %v", err)
 	}
-	defer conn.Close()
+	defer client.Close()
 
-	c := rpc.NewNodeServiceClient(conn)
-
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-
-	r, err := c.Ping(ctx, &rpc.PingRequest{})
+	client.Put(context.Background(), "foo", []byte("bar"))
+	val, ts, err := client.Get(context.Background(), "foo")
 	if err != nil {
-		log.Fatalf("could not ping: %v", err)
+		log.Fatalf("failed to get: %v", err)
 	}
-	log.Printf("Greeting: %s", r.GetMessage())
+
+	fmt.Println(string(val))
+	fmt.Println(ts.Format(time.RFC3339))
 }

@@ -2,6 +2,7 @@ syntax = "proto3";
 
 package rpc;
 option go_package = "github.com/yourusername/DynamoMiniGo/pkg/rpc"; // Adjust path
+import "google/protobuf/timestamp.proto";
 
 message NodeMeta {
     string node_id = 1; // e.g., hash of ip:port
@@ -9,13 +10,48 @@ message NodeMeta {
     int32 port = 3;
 }
 
+enum StatusCode {
+    OK = 0;
+    ERROR = 1;
+    NOT_FOUND = 2;
+    WRONG_NODE = 3; // Indicate the request hit the wrong node
+    // Add more status codes as needed (e.g., QUORUM_FAILED)
+  }
+
 // Placeholder requests/responses
 message PingRequest {}
 message PingResponse {
     string message = 1;
 }
 
+message GetRequest {
+    string key = 1;
+    // Add context/options later (e.g., Read preference R)
+  }
+
+  message GetResponse {
+    StatusCode status = 1;
+    bytes value = 2;
+    google.protobuf.Timestamp timestamp = 3;
+    NodeMeta coordinator = 4; // Node that processed the request
+  }
+
+  message PutRequest {
+    string key = 1;
+    bytes value = 2;
+    google.protobuf.Timestamp timestamp = 3; // Client sets this initially
+    // Add context/options later (e.g., Write preference W)
+  }
+
+  message PutResponse {
+    StatusCode status = 1;
+    NodeMeta coordinator = 2; // Node that processed the request
+    google.protobuf.Timestamp final_timestamp = 3; // Timestamp stored
+  }
+
 service NodeService {
     rpc Ping(PingRequest) returns (PingResponse);
+    rpc Get(GetRequest) returns (GetResponse);
+    rpc Put(PutRequest) returns (PutResponse);
     // Add more RPCs in later iterations (Get, Put, Replicate, Gossip...)
 }

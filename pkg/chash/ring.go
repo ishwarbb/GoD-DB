@@ -24,7 +24,7 @@ func NewRing() *Ring {
 	}
 }
 
-func (r *Ring) AddNode(node rpc.NodeMeta) {
+func (r *Ring) AddNode(node rpc.NodeMeta) string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -33,6 +33,7 @@ func (r *Ring) AddNode(node rpc.NodeMeta) {
 	r.hashes = append(r.hashes, hash)
 	sort.Strings(r.hashes)
 	r.nodeMetas[hash] = node
+	return hash
 }
 
 func (r *Ring) RemoveNode(nodeID string) {
