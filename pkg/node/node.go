@@ -23,10 +23,13 @@ func NewNode(port int, redisPort int) *Node {
 	)
 
 	ring := chash.NewRing()
-	hash := ring.AddNode(rpc.NodeMeta{
-		Ip:   "localhost",
-		Port: int32(port),
-	})
+	for i := 0; i < 5; i++ {
+		ring.AddNode(rpc.NodeMeta{
+			Ip:   "localhost",
+			Port: int32(port),
+			NodeId: fmt.Sprintf("localhost:%d", port),
+		})
+	}
 
 	if err != nil {
 		panic(err) // TODO: deal with this better
@@ -38,7 +41,7 @@ func NewNode(port int, redisPort int) *Node {
 		ring:      ring,
 		store:     store,
 		meta: rpc.NodeMeta{
-			NodeId: hash,
+			NodeId: fmt.Sprintf("localhost:%d", port),
 			Ip:     "localhost",
 			Port:   int32(port),
 		},

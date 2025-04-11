@@ -38,3 +38,6 @@ run-worker: worker
 
 run-client: client
 	$(BIN_DIR)/client -server localhost:8080
+
+start-redis:
+	redis-server --port 63079
