@@ -43,7 +43,7 @@ func (c *Client) Get(ctx context.Context, key string) ([]byte, time.Time, error)
 	case rpc.StatusCode_NOT_FOUND:
 		return nil, time.Time{}, fmt.Errorf("key not found")
 	case rpc.StatusCode_WRONG_NODE:
-		log.Printf("WRONG_NODE: key %s should be on %v", key, r.Coordinator)
+		log.Printf("WRONG_NODE: key %s should be on %v", key, r.CorrectNode)
 		return nil, time.Time{}, fmt.Errorf("wrong node")
 	default:
 		return nil, time.Time{}, fmt.Errorf("unknown error")
@@ -61,7 +61,7 @@ func (c *Client) Put(ctx context.Context, key string, value []byte) (time.Time, 
 	case rpc.StatusCode_OK:
 		return r.FinalTimestamp.AsTime(), nil
 	case rpc.StatusCode_WRONG_NODE:
-		log.Printf("WRONG_NODE: key %s should be on %v", key, r.Coordinator)
+		log.Printf("WRONG_NODE: key %s should be on %v", key, r.CorrectNode)
 		return time.Time{}, fmt.Errorf("wrong node")
 	default:
 		return time.Time{}, fmt.Errorf("unknown error")

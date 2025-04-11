@@ -20,12 +20,16 @@ func (n *Node) Get(ctx context.Context, in *rpc.GetRequest) (*rpc.GetResponse, e
 		return nil, err
 	}
 
-	if nodeID != n.meta.NodeId {
-		// TODO: need to forward request
-		// return nil, fmt.Errorf("key not found on this node")
+	nodeMeta, success := n.ring.GetNodeMeta(nodeID)
+	if !success { 
+		return nil, fmt.Errorf("node not found in ring: %s", nodeID)
+	}
+
+	if nodeID != nodeMeta.NodeId {
 		return &rpc.GetResponse{
 			Status:      rpc.StatusCode_WRONG_NODE,
 			Coordinator: &n.meta,
+			CorrectNode: &nodeMeta,
 		}, nil
 	}
 
@@ -51,12 +55,16 @@ func (n *Node) Put(ctx context.Context, in *rpc.PutRequest) (*rpc.PutResponse, e
 	fmt.Println("n.meta.NodeId: ", n.meta.NodeId)
 	fmt.Println("")
 
-	if nodeID != n.meta.NodeId {
-		// TODO: need to forward request
-		// return nil, fmt.Errorf("key not found on this node")
+	nodeMeta, success := n.ring.GetNodeMeta(nodeID)
+	if !success { 
+		return nil, fmt.Errorf("node not found in ring: %s", nodeID)
+	}
+
+	if nodeID != nodeMeta.NodeId {
 		return &rpc.PutResponse{
 			Status:      rpc.StatusCode_WRONG_NODE,
 			Coordinator: &n.meta,
+			CorrectNode: &nodeMeta,
 		}, nil
 	}
 
@@ -69,5 +77,33 @@ func (n *Node) Put(ctx context.Context, in *rpc.PutRequest) (*rpc.PutResponse, e
 		Status:         rpc.StatusCode_OK,
 		Coordinator:    &n.meta,
 		FinalTimestamp: in.Timestamp,
+	}, nil
+}
+
+
+// Implement GetPreferenceList:
+// Use node.ring.GetN(req.Key, int(req.N)) to get the list of n node IDs (hashes).
+// Look up the NodeMeta for each ID from the ring's internal map (node.ring.GetNodeMeta).
+// Return GetPreferenceListResponse with OK status, the list of found NodeMeta, and node.meta as coordinator. Handle errors from GetN (e.g., ring empty, not enough nodes)
+
+func (n *Node) GetPreferenceList(ctx context.Context, in *rpc.GetPreferenceListRequest) (*rpc.GetPreferenceListResponse, error) {
+	nodeIDs, err := n.ring.GetN(in.Key, int(in.N))
+	if err != nil {
+		return nil, err
+	}
+
+	nodes := make([]*rpc.NodeMeta, 0, len(nodeIDs))
+	for _, id := range nodeIDs {
+		nodeMeta, ok := n.ring.GetNodeMeta(id)
+		if !ok {
+			return nil, fmt.Errorf("node not found in ring: %s", id)
+		}
+		nodes = append(nodes, &nodeMeta)
+	}
+
+	return &rpc.GetPreferenceListResponse{
+		Status:      rpc.StatusCode_OK,
+		PreferenceList:   nodes,
+		Coordinator: &n.meta,
 	}, nil
 }
