@@ -29,11 +29,13 @@ message GetRequest {
     // Add context/options later (e.g., Read preference R)
   }
 
+  // Modify GetResponse
   message GetResponse {
     StatusCode status = 1;
     bytes value = 2;
     google.protobuf.Timestamp timestamp = 3;
-    NodeMeta coordinator = 4; // Node that processed the request
+    NodeMeta coordinator = 4;
+    optional NodeMeta correct_node = 5; // If status == WRONG_NODE ???
   }
 
   message PutRequest {
@@ -43,15 +45,31 @@ message GetRequest {
     // Add context/options later (e.g., Write preference W)
   }
 
+  // Modify PutResponse
   message PutResponse {
     StatusCode status = 1;
-    NodeMeta coordinator = 2; // Node that processed the request
-    google.protobuf.Timestamp final_timestamp = 3; // Timestamp stored
+    NodeMeta coordinator = 2;
+    google.protobuf.Timestamp final_timestamp = 3;
+    optional NodeMeta correct_node = 5; // If status == WRONG_NODE ???
   }
 
 service NodeService {
     rpc Ping(PingRequest) returns (PingResponse);
     rpc Get(GetRequest) returns (GetResponse);
     rpc Put(PutRequest) returns (PutResponse);
+    rpc GetPreferenceList(GetPreferenceListRequest) returns (GetPreferenceListResponse);
     // Add more RPCs in later iterations (Get, Put, Replicate, Gossip...)
+}
+
+// IT -3 
+
+message GetPreferenceListRequest {
+  string key = 1;
+  int32 n = 2; // How many nodes needed (e.g., replication factor)
+}
+
+message GetPreferenceListResponse {
+  StatusCode status = 1;
+  repeated NodeMeta preference_list = 2; // List of N nodes responsible
+  NodeMeta coordinator = 3; // Node that processed this request
 }

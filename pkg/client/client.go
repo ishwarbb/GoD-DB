@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"sync"
 	"time"
 
 	"google.golang.org/grpc"
@@ -12,58 +13,294 @@ import (
 	"no.cap/goddb/pkg/rpc"
 )
 
+type NodeCache struct {
+	mu    sync.Mutex
+	nodes map[string]*rpc.NodeMeta
+	keyNodes map[string]string
+	ttl   time.Duration
+}
+
+type ConnectionManager struct {
+	mu      sync.Mutex
+	connections map[string]*grpc.ClientConn
+}
+
 type Client struct {
 	conn *grpc.ClientConn
 	rpc  rpc.NodeServiceClient
+	nodeCache *NodeCache
+	seedNodes []string
+	replicationFactorN int
+	readQuorumR int
+	writeQuorumW int
+	connMgr *ConnectionManager
 }
 
-func NewClient(addr string) (*Client, error) {
+func NewNodeCache(ttl time.Duration) *NodeCache {
+	return &NodeCache{
+		nodes: make(map[string]*rpc.NodeMeta),
+		ttl:   ttl,
+	}
+}
+
+
+func NewClient(addr string, seedNodes []string, replicationFactorN, readQuorumR, writeQuorumW int) (*Client, error) {
 	conn, err := grpc.Dial(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return nil, fmt.Errorf("did not connect: %v", err)
 	}
 
 	c := rpc.NewNodeServiceClient(conn)
-	return &Client{conn: conn, rpc: c}, nil
+	node_cache := NewNodeCache(5 * time.Minute)
+	conn_mgr := &ConnectionManager{ 
+		connections: make(map[string]*grpc.ClientConn),
+	}
+	// Initialize the connection manager with the seed nodes
+	for _, seedNode := range seedNodes {
+		conn, err := grpc.Dial(seedNode, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		if err != nil {
+			return nil, fmt.Errorf("failed to connect to seed node %s: %v", seedNode, err)
+		}
+		conn_mgr.connections[seedNode] = conn
+	}
+
+	return &Client{conn: conn, rpc: c, nodeCache: node_cache, seedNodes: []string{addr}, replicationFactorN: replicationFactorN, readQuorumR: readQuorumR, writeQuorumW: writeQuorumW, connMgr: conn_mgr}, nil
 }
 
 func (c *Client) Close() {
 	c.conn.Close()
 }
 
-func (c *Client) Get(ctx context.Context, key string) ([]byte, time.Time, error) {
-	r, err := c.rpc.Get(ctx, &rpc.GetRequest{Key: key})
-	if err != nil {
-		return nil, time.Time{}, fmt.Errorf("could not get: %v", err)
-	}
+// *   Modify `Get(ctx context.Context, key string)`:
+// *   Use `resolveCoordinator` to find the primary node for the key.
+// *   Loop with retries:
+// 	*   Get gRPC client for the target node (start with primary).
+// 	*   Call the `Get` RPC.
+// 	*   Handle response:
+// 		*   `OK`, `NOT_FOUND`: Return result.
+// 		*   `WRONG_NODE`: Update cache with `correct_node`. Set target node to `correct_node` for next retry.
+// 		*   `ERROR`/Connection Error: Log error. Pick the *next* node from the preference list (if fetched) as the target for the next retry (simple failover for now).
+// 	*   Decrement retry count.
+// *   Return error if retries exhausted.
 
-	switch r.Status {
-	case rpc.StatusCode_OK:
-		return r.Value, r.Timestamp.AsTime(), nil
-	case rpc.StatusCode_NOT_FOUND:
-		return nil, time.Time{}, fmt.Errorf("key not found")
-	case rpc.StatusCode_WRONG_NODE:
-		log.Printf("WRONG_NODE: key %s should be on %v", key, r.CorrectNode)
-		return nil, time.Time{}, fmt.Errorf("wrong node")
-	default:
-		return nil, time.Time{}, fmt.Errorf("unknown error")
-	}
+func (c *Client) Get(ctx context.Context, key string) ([]byte, time.Time, error) {
+	// Resolve the coordinator for the key
+
+	// TODO
+	// coordinator, err := c.resolveCoordinator(ctx, key)
+	// if err != nil {
+	// 	return nil, time.Time{}, fmt.Errorf("could not resolve coordinator: %v", err)
+	// }
+
+	retryCount := 3
+	preferenceList, _ := c.fetchPreferenceList(ctx, key)  // Handle error appropriately TODO
+	targetNode := preferenceList[0].NodeId
+	triedNodes := make(map[string]bool)
+
+	for retryCount > 0 {
+		retryCount--
+		triedNodes[targetNode] = true
+
+		// Get the gRPC client for the coordinator
+		client, err := c.getNodeClient(ctx, targetNode)
+		if err != nil {
+			return nil, time.Time{}, fmt.Errorf("could not get node client: %v", err)
+		}
+
+		// Call the Get RPC
+		r, err := client.Get(ctx, &rpc.GetRequest{Key: key})
+		if err != nil {
+			return nil, time.Time{}, fmt.Errorf("could not get: %v", err)
+		}
+
+		switch r.Status {
+		case rpc.StatusCode_OK:
+			return r.Value, r.Timestamp.AsTime(), nil
+		case rpc.StatusCode_NOT_FOUND:
+			return nil, time.Time{}, fmt.Errorf("key not found")
+		case rpc.StatusCode_WRONG_NODE:
+			log.Printf("WRONG_NODE: key %s should be on %v", key, r.CorrectNode)
+
+			if targetNode == c.nodeCache.keyNodes[key] {
+				log.Printf("Key %s is already in the cache with the correct node %v", key, r.CorrectNode)
+				c.nodeCache.mu.Lock()
+				c.nodeCache.keyNodes[key] = r.CorrectNode.NodeId
+				c.nodeCache.nodes[r.Coordinator.NodeId] = r.CorrectNode
+				c.nodeCache.mu.Unlock()
+				return nil, time.Time{}, fmt.Errorf("key already in cache with correct node")
+			}
+
+			targetNode = r.CorrectNode.NodeId
+		default:
+			log.Printf("Unknown error: %v", r.Status)
+			// Log the error and pick the next node from the preference list
+			
+			preferenceList, _ = c.fetchPreferenceList(ctx, key) // Handle error appropriately TODO
+			isUpdate := false
+			for i := 0; i < len(preferenceList); i++ {
+				if triedNodes[preferenceList[i].NodeId] {
+					continue
+				}
+
+				targetNode = preferenceList[i].NodeId
+				isUpdate = true
+				break
+			}
+
+			if !isUpdate {
+				log.Printf("No more nodes to try for key %s", key)
+				return nil, time.Time{}, fmt.Errorf("no more nodes to try")
+			}
+		}
+	}	
+
+	// If we reach here, it means we exhausted all retries
+	return nil, time.Time{}, fmt.Errorf("failed to get key %s after retries", key)
 }
 
+// *   Modify `Put(ctx context.Context, key string, value []byte)`:
+// *   Use `resolveCoordinator` to find the primary node.
+// *   Loop with retries (similar to Get):
+// 	*   Target a node (start with primary).
+// 	*   Call `Put` RPC (generate timestamp).
+// 	*   Handle response (`OK`, `WRONG_NODE`, `ERROR`/Connection Error) similarly to Get, updating target node for retries.
+// *   Return error if retries exhausted.
+
 func (c *Client) Put(ctx context.Context, key string, value []byte) (time.Time, error) {
-	ts := timestamppb.Now()
-	r, err := c.rpc.Put(ctx, &rpc.PutRequest{Key: key, Value: value, Timestamp: ts})
-	if err != nil {
-		return time.Time{}, fmt.Errorf("could not put: %v", err)
+
+	// Resolve the coordinator for the key
+
+	// TODO
+	// coordinator, err := c.resolveCoordinator(ctx, key)
+	// if err != nil {
+	// 	return nil, time.Time{}, fmt.Errorf("could not resolve coordinator: %v", err)
+	// }
+
+	retryCount := 3
+	preferenceList, _ := c.fetchPreferenceList(ctx, key)  // Handle error appropriately TODO
+	targetNode := preferenceList[0].NodeId
+	triedNodes := make(map[string]bool)
+
+	for retryCount > 0 {
+		retryCount--
+		triedNodes[targetNode] = true
+
+		ts := timestamppb.Now()
+		r, err := c.rpc.Put(ctx, &rpc.PutRequest{Key: key, Value: value, Timestamp: ts})
+		if err != nil {
+			return time.Time{}, fmt.Errorf("could not put: %v", err)
+		}
+
+		switch r.Status {
+		case rpc.StatusCode_OK:
+			return r.FinalTimestamp.AsTime(), nil
+		case rpc.StatusCode_WRONG_NODE:
+			log.Printf("WRONG_NODE: key %s should be on %v", key, r.CorrectNode)
+			if targetNode == c.nodeCache.keyNodes[key] {
+				log.Printf("Key %s is already in the cache with the correct node %v", key, r.CorrectNode)
+				c.nodeCache.mu.Lock()
+				c.nodeCache.keyNodes[key] = r.CorrectNode.NodeId
+				c.nodeCache.nodes[r.Coordinator.NodeId] = r.CorrectNode
+				c.nodeCache.mu.Unlock()
+				return time.Time{}, fmt.Errorf("key already in cache with correct node")
+			}
+
+			targetNode = r.CorrectNode.NodeId
+		default:
+			log.Printf("Unknown error: %v", r.Status)
+			// Log the error and pick the next node from the preference list
+			
+			preferenceList, _ = c.fetchPreferenceList(ctx, key) // Handle error appropriately TODO
+			isUpdate := false
+			for i := 0; i < len(preferenceList); i++ {
+				if triedNodes[preferenceList[i].NodeId] {
+					continue
+				}
+
+				targetNode = preferenceList[i].NodeId
+				isUpdate = true
+				break
+			}
+
+			if !isUpdate {
+				log.Printf("No more nodes to try for key %s", key)
+				return time.Time{}, fmt.Errorf("no more nodes to try")
+			}
+		}
 	}
 
-	switch r.Status {
-	case rpc.StatusCode_OK:
-		return r.FinalTimestamp.AsTime(), nil
-	case rpc.StatusCode_WRONG_NODE:
-		log.Printf("WRONG_NODE: key %s should be on %v", key, r.CorrectNode)
-		return time.Time{}, fmt.Errorf("wrong node")
-	default:
-		return time.Time{}, fmt.Errorf("unknown error")
+	// If we reach here, it means we exhausted all retries
+	return time.Time{}, fmt.Errorf("failed to put key %s after retries", key)
+}
+
+
+// *   Implement `getNodeClient(ctx context.Context, nodeAddr string) (rpc.NodeServiceClient, error)` using the `connMgr`.
+
+func (c *Client) getNodeClient(ctx context.Context, nodeAddr string) (rpc.NodeServiceClient, error) {
+	c.connMgr.mu.Lock()
+	defer c.connMgr.mu.Unlock()
+
+	// Check if the connection already exists
+	if conn, ok := c.connMgr.connections[nodeAddr]; ok {
+		return rpc.NewNodeServiceClient(conn), nil
 	}
+
+	// Create a new connection
+	conn, err := grpc.Dial(nodeAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to node %s: %v", nodeAddr, err)
+	}
+
+	c.connMgr.connections[nodeAddr] = conn
+	return rpc.NewNodeServiceClient(conn), nil
+}
+
+
+func (c *Client) resolveCoordinator(ctx context.Context, key string) (*rpc.NodeMeta, error) {
+	c.nodeCache.mu.Lock()
+	defer c.nodeCache.mu.Unlock()
+
+	// Check if the node is in the cache
+	if nodeID, ok := c.nodeCache.keyNodes[key]; ok {
+		if nodeMeta, ok := c.nodeCache.nodes[nodeID]; ok {
+			return nodeMeta, nil
+		}
+	}
+
+	// If not in cache, fetch the preference list
+	nodeMetas, err := c.fetchPreferenceList(ctx, key)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch preference list: %v", err)
+	}
+
+	return nodeMetas[0], nil
+}
+
+
+func (c *Client) fetchPreferenceList(ctx context.Context, key string) ([]*rpc.NodeMeta, error) {
+	var lastErr error
+	for _, seedNode := range c.seedNodes {
+		client, err := c.getNodeClient(ctx, seedNode)
+		if err != nil {
+			lastErr = fmt.Errorf("failed to get node client: %v", err)
+			continue
+		}
+
+		r, err := client.GetPreferenceList(ctx, &rpc.GetPreferenceListRequest{Key: key, N: int32(c.replicationFactorN)})
+		if err != nil {
+			lastErr = fmt.Errorf("failed to get preference list: %v", err)
+			continue
+		}
+
+		if r.Status == rpc.StatusCode_OK {
+			for _, nodeMeta := range r.PreferenceList {
+				c.nodeCache.nodes[nodeMeta.NodeId] = nodeMeta
+			}
+			
+			c.nodeCache.keyNodes[key] = r.PreferenceList[0].NodeId
+			return r.PreferenceList, nil
+		}
+	}
+
+	return nil, lastErr
 }

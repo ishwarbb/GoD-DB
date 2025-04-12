@@ -14,7 +14,7 @@ func main() {
 	serverAddr := flag.String("server", "localhost:50051", "the address to connect to")
 	flag.Parse()
 
-	client, err := client.NewClient(*serverAddr)
+	client, err := client.NewClient(*serverAddr, []string{*serverAddr}, 3, 2, 2)
 	if err != nil {
 		log.Fatalf("failed to create client: %v", err)
 	}

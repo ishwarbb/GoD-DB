@@ -81,11 +81,6 @@ func (n *Node) Put(ctx context.Context, in *rpc.PutRequest) (*rpc.PutResponse, e
 }
 
 
-// Implement GetPreferenceList:
-// Use node.ring.GetN(req.Key, int(req.N)) to get the list of n node IDs (hashes).
-// Look up the NodeMeta for each ID from the ring's internal map (node.ring.GetNodeMeta).
-// Return GetPreferenceListResponse with OK status, the list of found NodeMeta, and node.meta as coordinator. Handle errors from GetN (e.g., ring empty, not enough nodes)
-
 func (n *Node) GetPreferenceList(ctx context.Context, in *rpc.GetPreferenceListRequest) (*rpc.GetPreferenceListResponse, error) {
 	nodeIDs, err := n.ring.GetN(in.Key, int(in.N))
 	if err != nil {
