@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"time"
 
 	"no.cap/goddb/pkg/node"
 	"no.cap/goddb/pkg/rpc"
@@ -18,6 +19,9 @@ func main() {
 	replicationFactor := flag.Int("replication", 3, "replication factor (N)")
 	writeQuorum := flag.Int("writequorum", 2, "write quorum (W)")
 	readQuorum := flag.Int("readquorum", 2, "read quorum (R)")
+	gossipInterval := flag.Duration("gossip", 10*time.Second, "gossip interval")
+	gossipPeers := flag.Int("peers", 2, "number of peers to gossip with each round")
+	enableGossip := flag.Bool("enablegossip", true, "enable gossip protocol")
 	flag.Parse()
 
 	lis, err := net.Listen("tcp", fmt.Sprintf("localhost:%d", *port))
@@ -37,6 +41,12 @@ func main() {
 	s := grpc.NewServer()
 	n := node.NewNode(config)
 	rpc.RegisterNodeServiceServer(s, n)
+
+	// Start gossip protocol if enabled
+	if *enableGossip {
+		log.Printf("Starting gossip protocol (interval: %v, peers per round: %d)", *gossipInterval, *gossipPeers)
+		n.StartGossip(*gossipInterval, *gossipPeers)
+	}
 
 	log.Printf("server listening at %v", lis.Addr())
 	log.Printf("replication factor: %d, write quorum: %d, read quorum: %d",

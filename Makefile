@@ -4,7 +4,7 @@
 PROJECT_NAME := GoD-DB
 PROTO_DIR := pkg/rpc
 PROTO_FILE := $(PROTO_DIR)/dynamo.proto
-GO_PKG := github.com/yourusername/$(PROJECT_NAME) # Replace with your actual Go module path
+GO_PKG := no.cap/goddb # Updated to match the actual Go module path
 BIN_DIR := bin
 
 all: worker client
@@ -13,7 +13,10 @@ all: worker client
 generate-proto:
 	mkdir -p $(PROTO_DIR)
 	@echo "Generating protobuf code..."
-	protoc --proto_path=$(PROTO_DIR) --go_out=$(PROTO_DIR) --go_opt=paths=source_relative --go-grpc_out=$(PROTO_DIR) --go-grpc_opt=paths=source_relative $(PROTO_FILE)
+	protoc --proto_path=$(PROTO_DIR) \
+		--go_out=. --go_opt=module=$(GO_PKG) \
+		--go-grpc_out=. --go-grpc_opt=module=$(GO_PKG) \
+		$(PROTO_FILE)
 	@echo "Protobuf code generated successfully."
 
 proto: generate-proto
@@ -33,8 +36,10 @@ clean:
 	rm -rf $(BIN_DIR) $(PROTO_DIR)/*.pb.go $(PROTO_DIR)/*_grpc.pb.go
 
 # Example run commands (not part of the build process, but helpful)
+# Usage: make run-worker PORT=8081
+PORT ?= 8080
 run-worker: worker
-	$(BIN_DIR)/worker -port 8080 -redisport 63079
+	$(BIN_DIR)/worker -port $(PORT) -redisport 63079
 
 run-client: client
 	$(BIN_DIR)/client -server localhost:8080

@@ -1,13 +1,15 @@
 syntax = "proto3";
 
 package rpc;
-option go_package = "github.com/yourusername/DynamoMiniGo/pkg/rpc"; // Adjust path
+option go_package = "no.cap/goddb/pkg/rpc"; // Updated to match project module
 import "google/protobuf/timestamp.proto";
 
 message NodeMeta {
     string node_id = 1; // e.g., hash of ip:port
     string ip = 2;
     int32 port = 3;
+    int64 version = 4; // Version counter for this node's state info in the ring
+    // Optional: Add status enum (UP, DOWN, LEAVING) later for explicit state
 }
 
 enum StatusCode {
@@ -67,13 +69,23 @@ message ReplicatePutResponse {
   string node_id = 2; // Replica node reporting status
 }
 
+message GossipRequest {
+  NodeMeta sender_node = 1; // Metadata of the node sending the gossip
+  map<string, NodeMeta> node_states = 2; // Sender's view of the cluster (NodeID -> Meta)
+}
+
+message GossipResponse {
+  map<string, NodeMeta> updated_node_states = 1; // Receiver sends back newer info it has
+}
+
 service NodeService {
     rpc Ping(PingRequest) returns (PingResponse);
     rpc Get(GetRequest) returns (GetResponse);
     rpc Put(PutRequest) returns (PutResponse);
     rpc GetPreferenceList(GetPreferenceListRequest) returns (GetPreferenceListResponse);
     rpc ReplicatePut(ReplicatePutRequest) returns (ReplicatePutResponse);
-    // Add more RPCs in later iterations (Get, Put, Replicate, Gossip...)
+    rpc Gossip(GossipRequest) returns (GossipResponse);
+    // Add more RPCs in later iterations
 }
 
 // IT -3 

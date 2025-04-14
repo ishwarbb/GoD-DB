@@ -24,6 +24,7 @@ const (
 	NodeService_Put_FullMethodName               = "/rpc.NodeService/Put"
 	NodeService_GetPreferenceList_FullMethodName = "/rpc.NodeService/GetPreferenceList"
 	NodeService_ReplicatePut_FullMethodName      = "/rpc.NodeService/ReplicatePut"
+	NodeService_Gossip_FullMethodName            = "/rpc.NodeService/Gossip"
 )
 
 // NodeServiceClient is the client API for NodeService service.
@@ -35,6 +36,7 @@ type NodeServiceClient interface {
 	Put(ctx context.Context, in *PutRequest, opts ...grpc.CallOption) (*PutResponse, error)
 	GetPreferenceList(ctx context.Context, in *GetPreferenceListRequest, opts ...grpc.CallOption) (*GetPreferenceListResponse, error)
 	ReplicatePut(ctx context.Context, in *ReplicatePutRequest, opts ...grpc.CallOption) (*ReplicatePutResponse, error)
+	Gossip(ctx context.Context, in *GossipRequest, opts ...grpc.CallOption) (*GossipResponse, error)
 }
 
 type nodeServiceClient struct {
@@ -95,6 +97,16 @@ func (c *nodeServiceClient) ReplicatePut(ctx context.Context, in *ReplicatePutRe
 	return out, nil
 }
 
+func (c *nodeServiceClient) Gossip(ctx context.Context, in *GossipRequest, opts ...grpc.CallOption) (*GossipResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GossipResponse)
+	err := c.cc.Invoke(ctx, NodeService_Gossip_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // NodeServiceServer is the server API for NodeService service.
 // All implementations must embed UnimplementedNodeServiceServer
 // for forward compatibility.
@@ -104,6 +116,7 @@ type NodeServiceServer interface {
 	Put(context.Context, *PutRequest) (*PutResponse, error)
 	GetPreferenceList(context.Context, *GetPreferenceListRequest) (*GetPreferenceListResponse, error)
 	ReplicatePut(context.Context, *ReplicatePutRequest) (*ReplicatePutResponse, error)
+	Gossip(context.Context, *GossipRequest) (*GossipResponse, error)
 	mustEmbedUnimplementedNodeServiceServer()
 }
 
@@ -128,6 +141,9 @@ func (UnimplementedNodeServiceServer) GetPreferenceList(context.Context, *GetPre
 }
 func (UnimplementedNodeServiceServer) ReplicatePut(context.Context, *ReplicatePutRequest) (*ReplicatePutResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ReplicatePut not implemented")
+}
+func (UnimplementedNodeServiceServer) Gossip(context.Context, *GossipRequest) (*GossipResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Gossip not implemented")
 }
 func (UnimplementedNodeServiceServer) mustEmbedUnimplementedNodeServiceServer() {}
 func (UnimplementedNodeServiceServer) testEmbeddedByValue()                     {}
@@ -240,6 +256,24 @@ func _NodeService_ReplicatePut_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
+func _NodeService_Gossip_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GossipRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(NodeServiceServer).Gossip(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: NodeService_Gossip_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(NodeServiceServer).Gossip(ctx, req.(*GossipRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // NodeService_ServiceDesc is the grpc.ServiceDesc for NodeService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -266,6 +300,10 @@ var NodeService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ReplicatePut",
 			Handler:    _NodeService_ReplicatePut_Handler,
+		},
+		{
+			MethodName: "Gossip",
+			Handler:    _NodeService_Gossip_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

@@ -258,3 +258,40 @@ func (n *Node) ReplicatePut(ctx context.Context, req *rpc.ReplicatePutRequest) (
 		NodeId: n.meta.NodeId,
 	}, nil
 }
+
+// Add the implementation of the Gossip RPC method
+func (n *Node) Gossip(ctx context.Context, req *rpc.GossipRequest) (*rpc.GossipResponse, error) {
+	// Log the gossip request
+	log.Printf("Node %s: Received gossip from node %s", n.meta.NodeId, req.SenderNode.NodeId)
+
+	// Process the received node states by merging them into our ring
+	n.mergeGossipData(req.NodeStates)
+
+	// Prepare gossip response
+	response := &rpc.GossipResponse{
+		UpdatedNodeStates: make(map[string]*rpc.NodeMeta),
+	}
+
+	// Get all nodes from our ring
+	localNodes := n.ring.GetAllNodes()
+
+	// Compare each local node with what sender knows
+	for _, localNode := range localNodes {
+		// Check if sender knows about this node
+		senderNode, senderKnows := req.NodeStates[localNode.NodeId]
+
+		// If sender doesn't know this node OR our version is newer, send our info
+		if !senderKnows || localNode.Version > senderNode.Version {
+			// Make a copy of the NodeMeta to avoid modification
+			nodeCopy := localNode
+			response.UpdatedNodeStates[localNode.NodeId] = &nodeCopy
+		}
+	}
+
+	log.Printf("Node %s: Sending %d updated node states to %s",
+		n.meta.NodeId, len(response.UpdatedNodeStates), req.SenderNode.NodeId)
+
+	return response, nil
+}
+
+// Additional RPC handlers will be added here
