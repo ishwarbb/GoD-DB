@@ -2,7 +2,7 @@
 // versions:
 // - protoc-gen-go-grpc v1.5.1
 // - protoc             v3.6.1
-// source: dynamo.proto
+// source: pkg/rpc/dynamo.proto
 
 package rpc
 
@@ -269,5 +269,5 @@ var NodeService_ServiceDesc = grpc.ServiceDesc{
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
-	Metadata: "dynamo.proto",
+	Metadata: "pkg/rpc/dynamo.proto",
 }

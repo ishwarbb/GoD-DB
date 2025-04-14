@@ -13,7 +13,7 @@ all: worker client
 generate-proto:
 	mkdir -p $(PROTO_DIR)
 	@echo "Generating protobuf code..."
-	protoc --proto_path=$(PROTO_DIR) --go_out=$(PROTO_DIR) --go_opt=paths=source_relative --go-grpc_out=$(PROTO_DIR) --go-grpc_opt=paths=source_relative --experimental_allow_proto3_optional $(PROTO_FILE)
+	protoc --proto_path=$(PROTO_DIR) --go_out=$(PROTO_DIR) --go_opt=paths=source_relative --go-grpc_out=$(PROTO_DIR) --go-grpc_opt=paths=source_relative $(PROTO_FILE)
 	@echo "Protobuf code generated successfully."
 
 proto: generate-proto

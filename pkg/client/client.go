@@ -14,35 +14,35 @@ import (
 )
 
 type NodeCache struct {
-	mu    sync.Mutex
-	nodes map[string]*rpc.NodeMeta
+	mu       sync.Mutex
+	nodes    map[string]*rpc.NodeMeta
 	keyNodes map[string]string
-	ttl   time.Duration
+	ttl      time.Duration
 }
 
 type ConnectionManager struct {
-	mu      sync.Mutex
+	mu          sync.Mutex
 	connections map[string]*grpc.ClientConn
 }
 
 type Client struct {
-	conn *grpc.ClientConn
-	rpc  rpc.NodeServiceClient
-	nodeCache *NodeCache
-	seedNodes []string
+	conn               *grpc.ClientConn
+	rpc                rpc.NodeServiceClient
+	nodeCache          *NodeCache
+	seedNodes          []string
 	replicationFactorN int
-	readQuorumR int
-	writeQuorumW int
-	connMgr *ConnectionManager
+	readQuorumR        int
+	writeQuorumW       int
+	connMgr            *ConnectionManager
 }
 
 func NewNodeCache(ttl time.Duration) *NodeCache {
 	return &NodeCache{
-		nodes: make(map[string]*rpc.NodeMeta),
-		ttl:   ttl,
+		nodes:    make(map[string]*rpc.NodeMeta),
+		keyNodes: make(map[string]string),
+		ttl:      ttl,
 	}
 }
-
 
 func NewClient(addr string, seedNodes []string, replicationFactorN, readQuorumR, writeQuorumW int) (*Client, error) {
 	conn, err := grpc.Dial(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
@@ -52,7 +52,7 @@ func NewClient(addr string, seedNodes []string, replicationFactorN, readQuorumR,
 
 	c := rpc.NewNodeServiceClient(conn)
 	node_cache := NewNodeCache(5 * time.Minute)
-	conn_mgr := &ConnectionManager{ 
+	conn_mgr := &ConnectionManager{
 		connections: make(map[string]*grpc.ClientConn),
 	}
 	// Initialize the connection manager with the seed nodes
@@ -84,78 +84,165 @@ func (c *Client) Close() {
 // *   Return error if retries exhausted.
 
 func (c *Client) Get(ctx context.Context, key string) ([]byte, time.Time, error) {
-	// Resolve the coordinator for the key
+	// Get the preference list for this key
+	preferenceList, err := c.fetchPreferenceList(ctx, key)
+	if err != nil {
+		return nil, time.Time{}, fmt.Errorf("could not get preference list: %v", err)
+	}
 
-	// TODO
-	// coordinator, err := c.resolveCoordinator(ctx, key)
-	// if err != nil {
-	// 	return nil, time.Time{}, fmt.Errorf("could not resolve coordinator: %v", err)
-	// }
+	// Check if we have enough nodes for read quorum
+	if len(preferenceList) < c.readQuorumR {
+		return nil, time.Time{}, fmt.Errorf("insufficient nodes for read quorum (need %d, have %d)",
+			c.readQuorumR, len(preferenceList))
+	}
 
-	retryCount := 3
-	preferenceList, _ := c.fetchPreferenceList(ctx, key)  // Handle error appropriately TODO
-	targetNode := preferenceList[0].NodeId
-	triedNodes := make(map[string]bool)
+	// Create a channel for results
+	resultsChan := make(chan *rpc.GetResponse, len(preferenceList))
 
-	for retryCount > 0 {
-		retryCount--
-		triedNodes[targetNode] = true
+	// Use a WaitGroup to track goroutines
+	var wg sync.WaitGroup
 
-		// Get the gRPC client for the coordinator
-		client, err := c.getNodeClient(ctx, targetNode)
-		if err != nil {
-			return nil, time.Time{}, fmt.Errorf("could not get node client: %v", err)
-		}
+	// Query up to N nodes in parallel (preferenceList might contain fewer than N)
+	targetNodes := preferenceList
+	if len(preferenceList) > c.replicationFactorN {
+		targetNodes = preferenceList[:c.replicationFactorN]
+	}
 
-		// Call the Get RPC
-		r, err := client.Get(ctx, &rpc.GetRequest{Key: key})
-		if err != nil {
-			return nil, time.Time{}, fmt.Errorf("could not get: %v", err)
-		}
+	// Launch a goroutine for each target node
+	for _, nodeMeta := range targetNodes {
+		wg.Add(1)
 
-		switch r.Status {
-		case rpc.StatusCode_OK:
-			return r.Value, r.Timestamp.AsTime(), nil
-		case rpc.StatusCode_NOT_FOUND:
-			return nil, time.Time{}, fmt.Errorf("key not found")
-		case rpc.StatusCode_WRONG_NODE:
-			log.Printf("WRONG_NODE: key %s should be on %v", key, r.CorrectNode)
+		go func(node *rpc.NodeMeta) {
+			defer wg.Done()
 
-			if targetNode == c.nodeCache.keyNodes[key] {
-				log.Printf("Key %s is already in the cache with the correct node %v", key, r.CorrectNode)
-				c.nodeCache.mu.Lock()
-				c.nodeCache.keyNodes[key] = r.CorrectNode.NodeId
-				c.nodeCache.nodes[r.Coordinator.NodeId] = r.CorrectNode
-				c.nodeCache.mu.Unlock()
-				return nil, time.Time{}, fmt.Errorf("key already in cache with correct node")
+			// Get gRPC client for this node
+			nodeAddr := fmt.Sprintf("%s:%d", node.Ip, node.Port)
+			client, err := c.getNodeClient(ctx, nodeAddr)
+			if err != nil {
+				log.Printf("Failed to get client for node %s: %v", node.NodeId, err)
+				resultsChan <- nil // Signal failure
+				return
 			}
 
-			targetNode = r.CorrectNode.NodeId
-		default:
-			log.Printf("Unknown error: %v", r.Status)
-			// Log the error and pick the next node from the preference list
-			
-			preferenceList, _ = c.fetchPreferenceList(ctx, key) // Handle error appropriately TODO
-			isUpdate := false
-			for i := 0; i < len(preferenceList); i++ {
-				if triedNodes[preferenceList[i].NodeId] {
-					continue
+			// Set a timeout for this read operation
+			readCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			defer cancel()
+
+			// Call the Get RPC
+			resp, err := client.Get(readCtx, &rpc.GetRequest{Key: key})
+			if err != nil {
+				log.Printf("Failed to get key '%s' from node %s: %v", key, node.NodeId, err)
+				resultsChan <- nil // Signal failure
+				return
+			}
+
+			// Send response to the channel
+			resultsChan <- resp
+		}(nodeMeta)
+	}
+
+	// Create a goroutine to wait for all reads and close the channel
+	go func() {
+		wg.Wait()
+		close(resultsChan)
+	}()
+
+	// Collect valid responses
+	validResponses := make([]*rpc.GetResponse, 0, len(targetNodes))
+
+	for resp := range resultsChan {
+		if resp != nil && (resp.Status == rpc.StatusCode_OK || resp.Status == rpc.StatusCode_NOT_FOUND) {
+			validResponses = append(validResponses, resp)
+		}
+	}
+
+	// Check if we have enough responses for read quorum
+	if len(validResponses) < c.readQuorumR {
+		return nil, time.Time{}, fmt.Errorf("read quorum not achieved (need %d, got %d valid responses)",
+			c.readQuorumR, len(validResponses))
+	}
+
+	// Find the latest value based on timestamp
+	var latestResponse *rpc.GetResponse
+
+	for _, resp := range validResponses {
+		if resp.Status == rpc.StatusCode_OK {
+			if latestResponse == nil ||
+				resp.Timestamp.AsTime().After(latestResponse.Timestamp.AsTime()) {
+				latestResponse = resp
+			}
+		}
+	}
+
+	// If all responses were NOT_FOUND or we didn't find any OK responses
+	if latestResponse == nil {
+		return nil, time.Time{}, fmt.Errorf("key not found")
+	}
+
+	// Perform read repair for nodes with stale or missing data
+	c.performReadRepair(ctx, key, latestResponse, validResponses)
+
+	// Return the latest value
+	return latestResponse.Value, latestResponse.Timestamp.AsTime(), nil
+}
+
+// performReadRepair asynchronously updates nodes with stale or missing data
+func (c *Client) performReadRepair(ctx context.Context, key string, latestResp *rpc.GetResponse, responses []*rpc.GetResponse) {
+	// Create a new background context with a short timeout for repairs
+	repairCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	// Use a separate WaitGroup for repairs
+	var repairWg sync.WaitGroup
+
+	for _, resp := range responses {
+		// Skip the node that already has the latest data
+		if resp == latestResp {
+			continue
+		}
+
+		// Repair if the node has no data or stale data
+		if resp.Status == rpc.StatusCode_NOT_FOUND ||
+			resp.Timestamp.AsTime().Before(latestResp.Timestamp.AsTime()) {
+
+			repairWg.Add(1)
+
+			go func(staleResp *rpc.GetResponse) {
+				defer repairWg.Done()
+
+				// Get the client for the node that needs repair
+				nodeAddr := fmt.Sprintf("%s:%d", staleResp.Coordinator.Ip, staleResp.Coordinator.Port)
+				client, err := c.getNodeClient(repairCtx, nodeAddr)
+				if err != nil {
+					log.Printf("Read repair: Failed to get client for node %s: %v",
+						staleResp.Coordinator.NodeId, err)
+					return
 				}
 
-				targetNode = preferenceList[i].NodeId
-				isUpdate = true
-				break
-			}
+				// Send a Put request with the latest value and timestamp
+				_, err = client.Put(repairCtx, &rpc.PutRequest{
+					Key:       key,
+					Value:     latestResp.Value,
+					Timestamp: latestResp.Timestamp,
+				})
 
-			if !isUpdate {
-				log.Printf("No more nodes to try for key %s", key)
-				return nil, time.Time{}, fmt.Errorf("no more nodes to try")
-			}
+				if err != nil {
+					log.Printf("Read repair: Failed to update node %s with latest value for key '%s': %v",
+						staleResp.Coordinator.NodeId, key, err)
+				} else {
+					log.Printf("Read repair: Successfully updated node %s with latest value for key '%s'",
+						staleResp.Coordinator.NodeId, key)
+				}
+			}(resp)
 		}
-	}	
+	}
 
-	// If we reach here, it means we exhausted all retries
-	return nil, time.Time{}, fmt.Errorf("failed to get key %s after retries", key)
+	// Don't wait for repairs - they're best effort and shouldn't block the main flow
+	// But spawn a goroutine to wait and log when complete
+	go func() {
+		repairWg.Wait()
+		log.Printf("Read repair: Completed all repair attempts for key '%s'", key)
+	}()
 }
 
 // *   Modify `Put(ctx context.Context, key string, value []byte)`:
@@ -177,7 +264,11 @@ func (c *Client) Put(ctx context.Context, key string, value []byte) (time.Time, 
 	// }
 
 	retryCount := 3
-	preferenceList, _ := c.fetchPreferenceList(ctx, key)  // Handle error appropriately TODO
+	preferenceList, err := c.fetchPreferenceList(ctx, key) // Handle error appropriately TODO
+	if err != nil {
+		return time.Time{}, fmt.Errorf("could not get preference list: %v", err)
+	}
+
 	targetNode := preferenceList[0].NodeId
 	triedNodes := make(map[string]bool)
 
@@ -206,10 +297,15 @@ func (c *Client) Put(ctx context.Context, key string, value []byte) (time.Time, 
 			}
 
 			targetNode = r.CorrectNode.NodeId
+		case rpc.StatusCode_QUORUM_FAILED:
+			// The write was accepted by the coordinator but didn't achieve the required W quorum
+			log.Printf("QUORUM_FAILED: Write to key %s was accepted by coordinator %s but didn't achieve W=%d quorum",
+				key, r.Coordinator.NodeId, c.writeQuorumW)
+			return time.Time{}, fmt.Errorf("write quorum failure: coordinator accepted write but couldn't replicate to enough nodes")
 		default:
 			log.Printf("Unknown error: %v", r.Status)
 			// Log the error and pick the next node from the preference list
-			
+
 			preferenceList, _ = c.fetchPreferenceList(ctx, key) // Handle error appropriately TODO
 			isUpdate := false
 			for i := 0; i < len(preferenceList); i++ {
@@ -233,7 +329,6 @@ func (c *Client) Put(ctx context.Context, key string, value []byte) (time.Time, 
 	return time.Time{}, fmt.Errorf("failed to put key %s after retries", key)
 }
 
-
 // *   Implement `getNodeClient(ctx context.Context, nodeAddr string) (rpc.NodeServiceClient, error)` using the `connMgr`.
 
 func (c *Client) getNodeClient(ctx context.Context, nodeAddr string) (rpc.NodeServiceClient, error) {
@@ -255,7 +350,6 @@ func (c *Client) getNodeClient(ctx context.Context, nodeAddr string) (rpc.NodeSe
 	return rpc.NewNodeServiceClient(conn), nil
 }
 
-
 func (c *Client) resolveCoordinator(ctx context.Context, key string) (*rpc.NodeMeta, error) {
 	c.nodeCache.mu.Lock()
 	defer c.nodeCache.mu.Unlock()
@@ -276,7 +370,6 @@ func (c *Client) resolveCoordinator(ctx context.Context, key string) (*rpc.NodeM
 	return nodeMetas[0], nil
 }
 
-
 func (c *Client) fetchPreferenceList(ctx context.Context, key string) ([]*rpc.NodeMeta, error) {
 	var lastErr error
 	for _, seedNode := range c.seedNodes {
@@ -296,7 +389,7 @@ func (c *Client) fetchPreferenceList(ctx context.Context, key string) ([]*rpc.No
 			for _, nodeMeta := range r.PreferenceList {
 				c.nodeCache.nodes[nodeMeta.NodeId] = nodeMeta
 			}
-			
+
 			c.nodeCache.keyNodes[key] = r.PreferenceList[0].NodeId
 			return r.PreferenceList, nil
 		}

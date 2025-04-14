@@ -12,11 +12,13 @@ message NodeMeta {
 
 enum StatusCode {
     OK = 0;
-    ERROR = 1;
+    ERROR = 1;        // General server-side error
     NOT_FOUND = 2;
-    WRONG_NODE = 3; // Indicate the request hit the wrong node
-    // Add more status codes as needed (e.g., QUORUM_FAILED)
-  }
+    WRONG_NODE = 3;   // Indicate the request hit the wrong node
+    QUORUM_FAILED = 4; // Write quorum failed
+    READ_QUORUM_FAILED = 5; // Read quorum failed
+    // Add more status codes as needed
+}
 
 // Placeholder requests/responses
 message PingRequest {}
@@ -35,7 +37,7 @@ message GetRequest {
     bytes value = 2;
     google.protobuf.Timestamp timestamp = 3;
     NodeMeta coordinator = 4;
-    optional NodeMeta correct_node = 5; // If status == WRONG_NODE ???
+    NodeMeta correct_node = 5; // If status == WRONG_NODE ???
   }
 
   message PutRequest {
@@ -50,14 +52,27 @@ message GetRequest {
     StatusCode status = 1;
     NodeMeta coordinator = 2;
     google.protobuf.Timestamp final_timestamp = 3;
-    optional NodeMeta correct_node = 5; // If status == WRONG_NODE ???
+    NodeMeta correct_node = 5; // If status == WRONG_NODE ???
   }
+
+message ReplicatePutRequest {
+  string key = 1;
+  bytes value = 2;
+  google.protobuf.Timestamp timestamp = 3;
+  // optional NodeMeta original_coordinator = 4; // If needed later
+}
+
+message ReplicatePutResponse {
+  StatusCode status = 1;
+  string node_id = 2; // Replica node reporting status
+}
 
 service NodeService {
     rpc Ping(PingRequest) returns (PingResponse);
     rpc Get(GetRequest) returns (GetResponse);
     rpc Put(PutRequest) returns (PutResponse);
     rpc GetPreferenceList(GetPreferenceListRequest) returns (GetPreferenceListResponse);
+    rpc ReplicatePut(ReplicatePutRequest) returns (ReplicatePutResponse);
     // Add more RPCs in later iterations (Get, Put, Replicate, Gossip...)
 }
 
