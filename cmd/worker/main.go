@@ -19,6 +19,7 @@ func main() {
 	replicationFactor := flag.Int("replication", 3, "replication factor (N)")
 	writeQuorum := flag.Int("writequorum", 3, "write quorum (W)")
 	readQuorum := flag.Int("readquorum", 3, "read quorum (R)")
+	virtualNodes := flag.Int("virtualnodes", 10, "number of virtual nodes per physical node")
 	gossipInterval := flag.Duration("gossip", 10*time.Second, "gossip interval")
 	gossipPeers := flag.Int("peers", 2, "number of peers to gossip with each round")
 	enableGossip := flag.Bool("enablegossip", true, "enable gossip protocol")
@@ -37,6 +38,7 @@ func main() {
 		ReplicationFactorN: *replicationFactor,
 		WriteQuorumW:       *writeQuorum,
 		ReadQuorumR:        *readQuorum,
+		VirtualNodesCount:  *virtualNodes,
 		DiscoveryRedisAddr: *discoveryRedis,
 	}
 
@@ -53,6 +55,7 @@ func main() {
 	log.Printf("server listening at %v", lis.Addr())
 	log.Printf("replication factor: %d, write quorum: %d, read quorum: %d",
 		n.ReplicationFactorN, n.WriteQuorumW, n.ReadQuorumR)
+	log.Printf("virtual nodes per physical node: %d", config.VirtualNodesCount)
 	log.Printf("discovery Redis: %s", config.DiscoveryRedisAddr)
 
 	if err := s.Serve(lis); err != nil {

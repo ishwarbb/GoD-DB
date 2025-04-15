@@ -13,15 +13,17 @@ import (
 )
 
 type Ring struct {
-	mu        sync.RWMutex
-	hashes    []string
-	nodeMetas map[string]rpc.NodeMeta
+	mu             sync.RWMutex
+	hashes         []string                // Sorted list of all hashes (real and virtual)
+	nodeMetas      map[string]rpc.NodeMeta // Map from hash to node metadata
+	nodeToVirtuals map[string][]string     // Map from node ID to its virtual node hashes
 }
 
 func NewRing() *Ring {
 	return &Ring{
-		hashes:    []string{},
-		nodeMetas: make(map[string]rpc.NodeMeta),
+		hashes:         []string{},
+		nodeMetas:      make(map[string]rpc.NodeMeta),
+		nodeToVirtuals: make(map[string][]string),
 	}
 }
 
@@ -31,33 +33,76 @@ func GenerateRandomString() string {
 	return fmt.Sprintf("node-%d", rand.Int())
 }
 
-func (r *Ring) AddNode(node rpc.NodeMeta) string {
+// AddNode adds a node to the ring with the specified number of virtual nodes
+func (r *Ring) AddNode(node rpc.NodeMeta, virtualNodesCount int) string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	// Pass a random string to hashString to ensure a unique hash for each node
-	hash := hashString(node.NodeId)
-	r.hashes = append(r.hashes, hash)
+	// Generate a hash for the real node
+	realNodeHash := hashString(node.NodeId)
+
+	// Create a slice to store all hashes for this node (real + virtual)
+	nodeHashes := []string{realNodeHash}
+
+	// Create virtual nodes
+	for i := 0; i < virtualNodesCount; i++ {
+		virtualNodeID := fmt.Sprintf("%s-vnode-%d", node.NodeId, i)
+		virtualNodeHash := hashString(virtualNodeID)
+		nodeHashes = append(nodeHashes, virtualNodeHash)
+
+		// Store the node metadata for the virtual node hash
+		r.nodeMetas[virtualNodeHash] = node
+	}
+
+	// Add the real node metadata
+	r.nodeMetas[realNodeHash] = node
+
+	// Store the mapping from node ID to its hashes (for easy removal later)
+	r.nodeToVirtuals[node.NodeId] = nodeHashes
+
+	// Add all hashes to the ring and sort
+	r.hashes = append(r.hashes, nodeHashes...)
 	sort.Strings(r.hashes)
-	r.nodeMetas[hash] = node
-	return hash
+
+	return realNodeHash
 }
 
 func (r *Ring) RemoveNode(nodeID string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	//look up the nodeMetas for this nide ID and find the corredponding hash
-	var unwanted_hashes []string
-	for k, v := range r.nodeMetas {
-		if v.NodeId == nodeID {
-			unwanted_hashes = append(unwanted_hashes, k)
+	// Get all hashes (real + virtual) for this node
+	nodeHashes, exists := r.nodeToVirtuals[nodeID]
+	if !exists {
+		return // Node not found
+	}
+
+	// Remove node metadata for all hashes
+	for _, hash := range nodeHashes {
+		delete(r.nodeMetas, hash)
+	}
+
+	// Remove node from nodeToVirtuals mapping
+	delete(r.nodeToVirtuals, nodeID)
+
+	// Rebuild the sorted hashes list without the removed node's hashes
+	newHashes := make([]string, 0, len(r.hashes)-len(nodeHashes))
+	for _, hash := range r.hashes {
+		// Only keep hashes that are not part of the removed node
+		isRemoved := false
+		for _, removedHash := range nodeHashes {
+			if hash == removedHash {
+				isRemoved = true
+				break
+			}
+		}
+
+		if !isRemoved {
+			newHashes = append(newHashes, hash)
 		}
 	}
 
-	for _, v := range unwanted_hashes {
-		delete(r.nodeMetas, v)
-	}
+	r.hashes = newHashes
 }
 
 func (r *Ring) GetNode(key string) (string, error) {
@@ -111,8 +156,7 @@ func (r *Ring) GetN(key string, n int) ([]string, error) {
 	// Start from the primary node and walk clockwise
 
 	for i := 0; i < len(r.hashes) && len(nodeIDs) < n; i++ {
-		index = (index + 1) % len(r.hashes)
-		hash := r.hashes[index]
+		hash := r.hashes[(index+i)%len(r.hashes)]
 		node := r.nodeMetas[hash]
 		if !visited[node.NodeId] {
 			nodeIDs = append(nodeIDs, node.NodeId)
@@ -144,9 +188,19 @@ func (r *Ring) GetAllNodes() []rpc.NodeMeta {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	nodes := make([]rpc.NodeMeta, 0, len(r.nodeMetas))
+	// Use a map to track unique nodes by nodeID
+	uniqueNodes := make(map[string]rpc.NodeMeta)
+
+	// Add each node to the map using nodeID as key to ensure uniqueness
 	for _, node := range r.nodeMetas {
+		uniqueNodes[node.NodeId] = node
+	}
+
+	// Convert the map values to a slice
+	nodes := make([]rpc.NodeMeta, 0, len(uniqueNodes))
+	for _, node := range uniqueNodes {
 		nodes = append(nodes, node)
 	}
+
 	return nodes
 }

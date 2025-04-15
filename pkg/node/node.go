@@ -22,6 +22,8 @@ type NodeConfig struct {
 	ReplicationFactorN int
 	WriteQuorumW       int
 	ReadQuorumR        int
+	// Number of virtual nodes per physical node
+	VirtualNodesCount int
 	// Redis discovery service configuration
 	DiscoveryRedisAddr string
 }
@@ -34,6 +36,7 @@ func DefaultNodeConfig(port, redisPort int) NodeConfig {
 		ReplicationFactorN: 3,
 		WriteQuorumW:       2,
 		ReadQuorumR:        2,
+		VirtualNodesCount:  10,               // Default to 10 virtual nodes per physical node
 		DiscoveryRedisAddr: "localhost:6379", // Default discovery Redis address
 	}
 }
@@ -99,6 +102,8 @@ type Node struct {
 	ReplicationFactorN int
 	WriteQuorumW       int
 	ReadQuorumR        int
+	// Virtual nodes configuration
+	VirtualNodesCount int
 	// Connection manager for outgoing RPC calls
 	connMgr *ConnectionManager
 	// Mutex to protect meta updates
@@ -155,6 +160,8 @@ func NewNode(config NodeConfig) *Node {
 		ReplicationFactorN: config.ReplicationFactorN,
 		WriteQuorumW:       config.WriteQuorumW,
 		ReadQuorumR:        config.ReadQuorumR,
+		// Set virtual nodes count
+		VirtualNodesCount: config.VirtualNodesCount,
 		// Initialize connection manager
 		connMgr:            NewConnectionManager(),
 		discoveryRedisAddr: config.DiscoveryRedisAddr,
@@ -299,7 +306,7 @@ func (n *Node) mergeGossipData(receivedStates map[string]*rpc.NodeMeta) {
 		if !exists {
 			// This is a new node we don't know about
 			log.Printf("Node %s: Adding new node %s to ring from gossip", n.meta.NodeId, nodeID)
-			n.ring.AddNode(*receivedNodeMeta)
+			n.ring.AddNode(*receivedNodeMeta, n.VirtualNodesCount)
 			changed = true
 		} else if receivedNodeMeta.Version > existingNodeMeta.Version {
 			// We have this node, but received data is newer
@@ -308,7 +315,7 @@ func (n *Node) mergeGossipData(receivedStates map[string]*rpc.NodeMeta) {
 
 			// Remove the old node and add the updated one
 			n.ring.RemoveNode(nodeID)
-			n.ring.AddNode(*receivedNodeMeta)
+			n.ring.AddNode(*receivedNodeMeta, n.VirtualNodesCount)
 			changed = true
 		}
 	}
@@ -334,8 +341,8 @@ func (n *Node) registerWithDiscovery() {
 		// Continue with local configuration as fallback
 		log.Printf("Continuing with local node only")
 
-		// Add self to ring as fallback
-		n.ring.AddNode(n.meta)
+		// Add self to ring as fallback with virtual nodes
+		n.ring.AddNode(n.meta, n.VirtualNodesCount)
 		return
 	}
 
@@ -344,7 +351,7 @@ func (n *Node) registerWithDiscovery() {
 	nodeData, err := serializeNodeMeta(n.meta)
 	if err != nil {
 		log.Printf("Failed to serialize node metadata: %v", err)
-		n.ring.AddNode(n.meta)
+		n.ring.AddNode(n.meta, n.VirtualNodesCount)
 		return
 	}
 
@@ -352,7 +359,7 @@ func (n *Node) registerWithDiscovery() {
 	err = discoveryStore.Put(context.Background(), nodeKey, nodeData, time.Now())
 	if err != nil {
 		log.Printf("Failed to register node in discovery service: %v", err)
-		n.ring.AddNode(n.meta)
+		n.ring.AddNode(n.meta, n.VirtualNodesCount)
 		return
 	}
 	log.Printf("Node %s registered with discovery service", n.meta.NodeId)
@@ -363,7 +370,7 @@ func (n *Node) registerWithDiscovery() {
 
 	if err != nil {
 		log.Printf("Failed to get node list from discovery service: %v", err)
-		n.ring.AddNode(n.meta)
+		n.ring.AddNode(n.meta, n.VirtualNodesCount)
 		return
 	}
 
@@ -381,8 +388,8 @@ func (n *Node) registerWithDiscovery() {
 			continue
 		}
 
-		// Add the node to our ring
-		n.ring.AddNode(nodeMeta)
+		// Add the node to our ring with virtual nodes
+		n.ring.AddNode(nodeMeta, n.VirtualNodesCount)
 		log.Printf("Added node %s from discovery service", nodeMeta.NodeId)
 	}
 
