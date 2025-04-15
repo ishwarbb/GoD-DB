@@ -9,6 +9,7 @@ import (
 
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"no.cap/goddb/pkg/rpc"
+	"no.cap/goddb/pkg/vclock"
 )
 
 func (n *Node) Ping(ctx context.Context, in *rpc.PingRequest) (*rpc.PingResponse, error) {
@@ -18,7 +19,6 @@ func (n *Node) Ping(ctx context.Context, in *rpc.PingRequest) (*rpc.PingResponse
 }
 
 func (n *Node) Get(ctx context.Context, in *rpc.GetRequest) (*rpc.GetResponse, error) {
-
 	potentialNodes, err := n.ring.GetN(in.Key, n.ReplicationFactorN)
 	if err != nil {
 		return nil, err
@@ -46,15 +46,31 @@ func (n *Node) Get(ctx context.Context, in *rpc.GetRequest) (*rpc.GetResponse, e
 		}, nil
 	}
 
-	val, ts, err := n.store.Get(ctx, in.Key)
+	// Get value from local storage
+	value, vc, err := n.store.Get(ctx, in.Key)
 	if err != nil {
-		return nil, err
+		// Key not found
+		return &rpc.GetResponse{
+			Status:      rpc.StatusCode_NOT_FOUND,
+			Coordinator: &n.meta,
+		}, nil
 	}
 
+	// Convert vector clock to timestamp for backward compatibility
+	vProto := vc.ToProto()
+	// Create a timestamp using the largest counter value as Unix time
+	maxCounter := int64(0)
+	for _, counter := range vProto.Counters {
+		if counter > maxCounter {
+			maxCounter = counter
+		}
+	}
+	ts := timestamppb.New(time.Unix(maxCounter, 0))
+
 	return &rpc.GetResponse{
-		Value:       val,
-		Timestamp:   timestamppb.New(ts),
 		Status:      rpc.StatusCode_OK,
+		Value:       value,
+		Timestamp:   ts,
 		Coordinator: &n.meta,
 	}, nil
 }
@@ -87,8 +103,79 @@ func (n *Node) Put(ctx context.Context, in *rpc.PutRequest) (*rpc.PutResponse, e
 	}
 
 	// This node is the coordinator for this key
-	// First, store the value locally
-	err = n.store.Put(ctx, in.Key, in.Value, in.Timestamp.AsTime())
+	// Initialize vector clock from timestamp
+	clientVC := vclock.New()
+	if in.Timestamp != nil {
+		ts := in.Timestamp.AsTime()
+		// Use timestamp seconds as counter for a synthetic node ID
+		clientVC.Counters["client"] = ts.Unix()
+	}
+
+	// Try to get existing value and its vector clock
+	_, existingVC, err := n.store.Get(ctx, in.Key)
+	if err == nil && existingVC != nil {
+		// Key exists, compare vector clocks
+		comparison := existingVC.Compare(clientVC)
+
+		if comparison == 0 {
+			// Concurrent updates detected - needs conflict resolution
+			// Here we're using a simple strategy: increment our counter
+			// A more complex system might track conflicting versions
+
+			// Merge the two vector clocks
+			mergedVC := existingVC.Merge(clientVC)
+			// Increment our node's counter to create a new version
+			mergedVC.Increment(n.meta.NodeId)
+
+			// Update with merged vector clock
+			err = n.store.Put(ctx, in.Key, in.Value, mergedVC)
+			if err != nil {
+				log.Printf("Node %s: Failed to store key '%s' locally: %v", n.meta.NodeId, in.Key, err)
+				return &rpc.PutResponse{
+					Status:      rpc.StatusCode_ERROR,
+					Coordinator: &n.meta,
+				}, nil
+			}
+
+			// Create a timestamp for the response
+			maxCounter := int64(0)
+			for _, counter := range mergedVC.Counters {
+				if counter > maxCounter {
+					maxCounter = counter
+				}
+			}
+			finalTS := timestamppb.New(time.Unix(maxCounter, 0))
+
+			return &rpc.PutResponse{
+				Status:         rpc.StatusCode_OK, // Using OK instead of CONFLICT as it's not defined
+				Coordinator:    &n.meta,
+				FinalTimestamp: finalTS,
+			}, nil
+		} else if comparison < 0 {
+			// Our version is older, client has newer version
+			// Update our counter in the client's VC
+			clientVC.Increment(n.meta.NodeId)
+		} else {
+			// Our version is newer, but client attempted write with old data
+			// We'll accept it but update the VC to reflect reality
+			updatedVC := existingVC.Clone()
+			// Merge any new info from client VC
+			updatedVC = updatedVC.Merge(clientVC)
+			// Increment our counter
+			updatedVC.Increment(n.meta.NodeId)
+			clientVC = updatedVC
+		}
+	} else {
+		// Key doesn't exist yet, initialize vector clock if needed
+		if clientVC == nil || len(clientVC.Counters) == 0 {
+			clientVC = vclock.New()
+		}
+		// Increment our node counter
+		clientVC.Increment(n.meta.NodeId)
+	}
+
+	// Store locally first
+	err = n.store.Put(ctx, in.Key, in.Value, clientVC)
 	if err != nil {
 		log.Printf("Node %s: Failed to store key '%s' locally: %v", n.meta.NodeId, in.Key, err)
 		return &rpc.PutResponse{
@@ -104,10 +191,20 @@ func (n *Node) Put(ctx context.Context, in *rpc.PutRequest) (*rpc.PutResponse, e
 	nodeIDs, err := n.ring.GetN(in.Key, n.ReplicationFactorN)
 	if err != nil {
 		log.Printf("Node %s: Failed to get preference list for key '%s': %v", n.meta.NodeId, in.Key, err)
+
+		// Create timestamp for response
+		maxCounter := int64(0)
+		for _, counter := range clientVC.Counters {
+			if counter > maxCounter {
+				maxCounter = counter
+			}
+		}
+		finalTS := timestamppb.New(time.Unix(maxCounter, 0))
+
 		return &rpc.PutResponse{
 			Status:         rpc.StatusCode_OK, // At least local storage succeeded
 			Coordinator:    &n.meta,
-			FinalTimestamp: in.Timestamp,
+			FinalTimestamp: finalTS,
 		}, nil
 	}
 
@@ -124,10 +221,19 @@ func (n *Node) Put(ctx context.Context, in *rpc.PutRequest) (*rpc.PutResponse, e
 
 	// If there are no other nodes, return success
 	if len(replicaNodes) == 0 {
+		// Create timestamp for response
+		maxCounter := int64(0)
+		for _, counter := range clientVC.Counters {
+			if counter > maxCounter {
+				maxCounter = counter
+			}
+		}
+		finalTS := timestamppb.New(time.Unix(maxCounter, 0))
+
 		return &rpc.PutResponse{
 			Status:         rpc.StatusCode_OK,
 			Coordinator:    &n.meta,
-			FinalTimestamp: in.Timestamp,
+			FinalTimestamp: finalTS,
 		}, nil
 	}
 
@@ -137,11 +243,20 @@ func (n *Node) Put(ctx context.Context, in *rpc.PutRequest) (*rpc.PutResponse, e
 	// Use WaitGroup to track goroutines
 	var wg sync.WaitGroup
 
+	// Create timestamp for replication request
+	maxCounter := int64(0)
+	for _, counter := range clientVC.Counters {
+		if counter > maxCounter {
+			maxCounter = counter
+		}
+	}
+	replicaTS := timestamppb.New(time.Unix(maxCounter, 0))
+
 	// Create the replication request once
 	replicateReq := &rpc.ReplicatePutRequest{
 		Key:       in.Key,
 		Value:     in.Value,
-		Timestamp: in.Timestamp,
+		Timestamp: replicaTS,
 	}
 
 	// Launch goroutines to replicate to each node
@@ -206,12 +321,15 @@ func (n *Node) Put(ctx context.Context, in *rpc.PutRequest) (*rpc.PutResponse, e
 		}
 	}
 
+	// Create final timestamp for response
+	finalTS := timestamppb.New(time.Unix(maxCounter, 0))
+
 	// Check if we achieved quorum
 	if successCount >= n.WriteQuorumW {
 		return &rpc.PutResponse{
 			Status:         rpc.StatusCode_OK,
 			Coordinator:    &n.meta,
-			FinalTimestamp: in.Timestamp,
+			FinalTimestamp: finalTS,
 		}, nil
 	} else {
 		log.Printf("Node %s: Write quorum not achieved for key '%s'. Got %d successes, needed %d",
@@ -219,7 +337,7 @@ func (n *Node) Put(ctx context.Context, in *rpc.PutRequest) (*rpc.PutResponse, e
 		return &rpc.PutResponse{
 			Status:         rpc.StatusCode_QUORUM_FAILED,
 			Coordinator:    &n.meta,
-			FinalTimestamp: in.Timestamp,
+			FinalTimestamp: finalTS,
 		}, nil
 	}
 }
@@ -254,11 +372,21 @@ func (n *Node) GetPreferenceList(ctx context.Context, in *rpc.GetPreferenceListR
 func (n *Node) ReplicatePut(ctx context.Context, req *rpc.ReplicatePutRequest) (*rpc.ReplicatePutResponse, error) {
 	log.Printf("Node %s: Received ReplicatePut request for key '%s'", n.meta.NodeId, req.Key)
 
-	// Convert protobuf timestamp to time.Time
-	ts := req.Timestamp.AsTime()
+	// Convert timestamp to vector clock
+	vc := vclock.New()
+	if req.Timestamp != nil {
+		ts := req.Timestamp.AsTime()
+		// Use timestamp seconds as counter for coordinator's node ID
+		vc.Counters["coordinator"] = ts.Unix()
+		// Also increment our counter to show we've seen it
+		vc.Increment(n.meta.NodeId)
+	} else {
+		// If no timestamp, create a new vector clock with just our ID
+		vc.Increment(n.meta.NodeId)
+	}
 
 	// Directly call the local store's Put method
-	err := n.store.Put(ctx, req.Key, req.Value, ts)
+	err := n.store.Put(ctx, req.Key, req.Value, vc)
 	if err != nil {
 		log.Printf("Node %s: Failed to store replicated key '%s' in local store: %v", n.meta.NodeId, req.Key, err)
 		return &rpc.ReplicatePutResponse{

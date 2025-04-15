@@ -4,6 +4,11 @@ package rpc;
 option go_package = "no.cap/goddb/pkg/rpc"; // Updated to match project module
 import "google/protobuf/timestamp.proto";
 
+// Add VectorClock message type
+message VectorClock {
+  map<string, int64> counters = 1; // node_id -> counter
+}
+
 message NodeMeta {
     string node_id = 1; // e.g., hash of ip:port
     string ip = 2;
@@ -19,6 +24,7 @@ enum StatusCode {
     WRONG_NODE = 3;   // Indicate the request hit the wrong node
     QUORUM_FAILED = 4; // Write quorum failed
     READ_QUORUM_FAILED = 5; // Read quorum failed
+    CONFLICT = 6; // Add status for conflict detection
     // Add more status codes as needed
 }
 
@@ -37,15 +43,17 @@ message GetRequest {
   message GetResponse {
     StatusCode status = 1;
     bytes value = 2;
-    google.protobuf.Timestamp timestamp = 3;
+    // Replace timestamp with vector clock
+    VectorClock vector_clock = 3;
     NodeMeta coordinator = 4;
-    NodeMeta correct_node = 5; // If status == WRONG_NODE ???
+    NodeMeta correct_node = 5; // If status == WRONG_NODE
   }
 
   message PutRequest {
     string key = 1;
     bytes value = 2;
-    google.protobuf.Timestamp timestamp = 3; // Client sets this initially
+    // Replace timestamp with vector clock
+    VectorClock vector_clock = 3;
     // Add context/options later (e.g., Write preference W)
   }
 
@@ -53,14 +61,16 @@ message GetRequest {
   message PutResponse {
     StatusCode status = 1;
     NodeMeta coordinator = 2;
-    google.protobuf.Timestamp final_timestamp = 3;
-    NodeMeta correct_node = 5; // If status == WRONG_NODE ???
+    // Replace timestamp with vector clock
+    VectorClock final_vector_clock = 3;
+    NodeMeta correct_node = 5; // If status == WRONG_NODE
   }
 
 message ReplicatePutRequest {
   string key = 1;
   bytes value = 2;
-  google.protobuf.Timestamp timestamp = 3;
+  // Replace timestamp with vector clock
+  VectorClock vector_clock = 3;
   // optional NodeMeta original_coordinator = 4; // If needed later
 }
 

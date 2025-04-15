@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"sync"
@@ -11,6 +12,14 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"no.cap/goddb/pkg/rpc"
+	"no.cap/goddb/pkg/vclock"
+)
+
+var (
+	ErrNotFound          = errors.New("key not found")
+	ErrReadQuorumFailed  = errors.New("read quorum not achieved")
+	ErrWriteQuorumFailed = errors.New("write quorum not achieved")
+	ErrConflict          = errors.New("conflict detected during write")
 )
 
 type NodeCache struct {
@@ -34,6 +43,8 @@ type Client struct {
 	readQuorumR        int
 	writeQuorumW       int
 	connMgr            *ConnectionManager
+	vectorClocks       map[string]*vclock.VectorClock
+	vcMutex            sync.RWMutex
 }
 
 func NewNodeCache(ttl time.Duration) *NodeCache {
