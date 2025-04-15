@@ -2,6 +2,7 @@ package node
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"math/rand"
@@ -21,6 +22,8 @@ type NodeConfig struct {
 	ReplicationFactorN int
 	WriteQuorumW       int
 	ReadQuorumR        int
+	// Redis discovery service configuration
+	DiscoveryRedisAddr string
 }
 
 // DefaultNodeConfig returns a NodeConfig with sensible defaults
@@ -31,6 +34,7 @@ func DefaultNodeConfig(port, redisPort int) NodeConfig {
 		ReplicationFactorN: 3,
 		WriteQuorumW:       2,
 		ReadQuorumR:        2,
+		DiscoveryRedisAddr: "localhost:6379", // Default discovery Redis address
 	}
 }
 
@@ -99,6 +103,8 @@ type Node struct {
 	connMgr *ConnectionManager
 	// Mutex to protect meta updates
 	metaMutex sync.RWMutex
+	// Discovery service configuration
+	discoveryRedisAddr string
 }
 
 // IncrementVersion atomically increments the node's version counter
@@ -129,20 +135,12 @@ func NewNode(config NodeConfig) *Node {
 	)
 
 	ring := chash.NewRing()
-	for i := 0; i < 5; i++ {
-		ring.AddNode(rpc.NodeMeta{
-			Ip:      "localhost",
-			Port:    int32(config.Port),
-			NodeId:  fmt.Sprintf("localhost:%d", config.Port),
-			Version: 1, // Initialize with version 1
-		})
-	}
 
 	if err != nil {
 		panic(err) // TODO: deal with this better
 	}
 
-	return &Node{
+	node := &Node{
 		Port:      config.Port,
 		RedisPort: config.RedisPort,
 		ring:      ring,
@@ -158,8 +156,14 @@ func NewNode(config NodeConfig) *Node {
 		WriteQuorumW:       config.WriteQuorumW,
 		ReadQuorumR:        config.ReadQuorumR,
 		// Initialize connection manager
-		connMgr: NewConnectionManager(),
+		connMgr:            NewConnectionManager(),
+		discoveryRedisAddr: config.DiscoveryRedisAddr,
 	}
+
+	// Register with discovery service and initialize ring with discovered nodes
+	node.registerWithDiscovery()
+
+	return node
 }
 
 // StartGossip starts a background goroutine that periodically gossips with other nodes
@@ -315,4 +319,93 @@ func (n *Node) mergeGossipData(receivedStates map[string]*rpc.NodeMeta) {
 		log.Printf("Node %s: Updated ring based on gossip. New version: %d",
 			n.meta.NodeId, n.GetCurrentVersion())
 	}
+
+	log.Printf("Node %s: Ring after gossip: %v", n.meta.NodeId, n.ring)
+}
+
+// registerWithDiscovery registers this node with the discovery service
+// and initializes the ring with all nodes from the discovery service
+func (n *Node) registerWithDiscovery() {
+	// Connect to the discovery Redis server
+	discoveryStore, err := storage.NewStore(fmt.Sprintf("localhost:%s", n.discoveryRedisAddr))
+	log.Printf("discovery started")
+	if err != nil {
+		log.Printf("Failed to connect to discovery Redis at %s: %v", n.discoveryRedisAddr, err)
+		// Continue with local configuration as fallback
+		log.Printf("Continuing with local node only")
+
+		// Add self to ring as fallback
+		n.ring.AddNode(n.meta)
+		return
+	}
+
+	// Register this node in the discovery service
+	nodeKey := fmt.Sprintf("node:%s", n.meta.NodeId)
+	nodeData, err := serializeNodeMeta(n.meta)
+	if err != nil {
+		log.Printf("Failed to serialize node metadata: %v", err)
+		n.ring.AddNode(n.meta)
+		return
+	}
+
+	// Store node information in discovery Redis
+	err = discoveryStore.Put(context.Background(), nodeKey, nodeData, time.Now())
+	if err != nil {
+		log.Printf("Failed to register node in discovery service: %v", err)
+		n.ring.AddNode(n.meta)
+		return
+	}
+	log.Printf("Node %s registered with discovery service", n.meta.NodeId)
+
+	// Get all registered nodes using a Redis pattern scan
+	nodeKeys, err := scanKeys(discoveryStore, "node:*")
+	log.Printf("nodeKeys: %s", nodeKeys)
+
+	if err != nil {
+		log.Printf("Failed to get node list from discovery service: %v", err)
+		n.ring.AddNode(n.meta)
+		return
+	}
+
+	// Add all discovered nodes to the ring
+	for _, key := range nodeKeys {
+		data, _, err := discoveryStore.Get(context.Background(), key)
+		if err != nil {
+			log.Printf("Failed to get node data for %s: %v", key, err)
+			continue
+		}
+
+		nodeMeta, err := deserializeNodeMeta(data)
+		if err != nil {
+			log.Printf("Failed to deserialize node data for %s: %v", key, err)
+			continue
+		}
+
+		// Add the node to our ring
+		n.ring.AddNode(nodeMeta)
+		log.Printf("Added node %s from discovery service", nodeMeta.NodeId)
+	}
+
+	log.Printf("Node %s initialized with %d nodes from discovery service",
+		n.meta.NodeId, len(nodeKeys))
+}
+
+// serializeNodeMeta serializes an rpc.NodeMeta to a byte slice
+func serializeNodeMeta(meta rpc.NodeMeta) ([]byte, error) {
+	return json.Marshal(meta)
+}
+
+// deserializeNodeMeta deserializes a byte slice back to an rpc.NodeMeta
+func deserializeNodeMeta(data []byte) (rpc.NodeMeta, error) {
+	var meta rpc.NodeMeta
+	err := json.Unmarshal(data, &meta)
+	return meta, err
+}
+
+// scanKeys scans Redis for keys matching the provided pattern
+func scanKeys(store *storage.Store, pattern string) ([]string, error) {
+	// Use Redis client directly for pattern matching since Store doesn't expose Scan
+	ctx := context.Background()
+	cmd := store.Client().Keys(ctx, pattern)
+	return cmd.Result()
 }

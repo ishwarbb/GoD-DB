@@ -38,11 +38,58 @@ clean:
 # Example run commands (not part of the build process, but helpful)
 # Usage: make run-worker PORT=8081
 PORT ?= 8080
+REDIS_PORT ?= 63079
+DISCOVERY_REDIS_PORT ?= 63179
 run-worker: worker
-	$(BIN_DIR)/worker -port $(PORT) -redisport 63079
+	$(BIN_DIR)/worker -port $(PORT) -redisport $(REDIS_PORT) -discovery $(DISCOVERY_REDIS_PORT)
 
 run-client: client
 	$(BIN_DIR)/client -server localhost:8080
 
 start-redis:
-	redis-server --port 63079
+	redis-server --port $(REDIS_PORT)
+
+start-discovery-redis:
+	redis-server --port $(DISCOVERY_REDIS_PORT)
+
+start-all-nodes:
+	# start in different terminals
+	make start-redis REDIS_PORT=63079
+	make start-redis REDIS_PORT=63080
+	make start-redis REDIS_PORT=63081
+	make start-discovery-redis DISCOVERY_REDIS_PORT=63179
+	make run-worker PORT=8081 REDIS_PORT=63079 DISCOVERY_REDIS_PORT=63179
+	make run-worker PORT=8082 REDIS_PORT=63080 DISCOVERY_REDIS_PORT=63179
+	make run-worker PORT=8083 REDIS_PORT=63081 DISCOVERY_REDIS_PORT=63179
+	make run-client
+
+# Launch all nodes in separate terminal windows automatically
+launch-all-nodes:
+	xterm -e make start-redis REDIS_PORT=63079 &
+	xterm -e make start-redis REDIS_PORT=63080 &
+	xterm -e make start-redis REDIS_PORT=63081 &
+	xterm -e make start-discovery-redis DISCOVERY_REDIS_PORT=63179 &
+	xterm -e make run-worker PORT=8080 REDIS_PORT=63079 DISCOVERY_REDIS_PORT=63179 &
+	xterm -e make run-worker PORT=8081 REDIS_PORT=63080 DISCOVERY_REDIS_PORT=63179 &
+	xterm -e make run-worker PORT=8082 REDIS_PORT=63081 DISCOVERY_REDIS_PORT=63179 &
+# xterm -e make run-client &
+
+# Clear Redis instances
+clear-redis:
+	redis-cli -p 63079 flushall
+	redis-cli -p 63080 flushall
+	redis-cli -p 63081 flushall
+	redis-cli -p 63179 flushall
+	@echo "All Redis instances cleared"
+
+# Make a command to kill all xterm
+kill-xterm:
+
+	pkill -f "make start-redis" || true
+	pkill -f "make" || true
+	pkill -f "make start-discovery-redis" || true
+	pkill -f "make run-worker" || true
+	pkill -f "make run-client" || true
+	@echo "All processes terminated"
+
+	

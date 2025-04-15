@@ -66,3 +66,8 @@ func (s *Store) Get(ctx context.Context, key string) (value []byte, timestamp ti
 
 	return data.Value, data.Timestamp, nil
 }
+
+// Client returns the underlying Redis client
+func (s *Store) Client() *redis.Client {
+	return s.client
+}

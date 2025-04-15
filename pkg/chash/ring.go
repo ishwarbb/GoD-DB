@@ -36,7 +36,7 @@ func (r *Ring) AddNode(node rpc.NodeMeta) string {
 	defer r.mu.Unlock()
 
 	// Pass a random string to hashString to ensure a unique hash for each node
-	hash := hashString( GenerateRandomString())	
+	hash := hashString(node.NodeId)
 	r.hashes = append(r.hashes, hash)
 	sort.Strings(r.hashes)
 	r.nodeMetas[hash] = node
@@ -51,7 +51,7 @@ func (r *Ring) RemoveNode(nodeID string) {
 	var unwanted_hashes []string
 	for k, v := range r.nodeMetas {
 		if v.NodeId == nodeID {
-			unwanted_hashes = append(unwanted_hashes, k)			
+			unwanted_hashes = append(unwanted_hashes, k)
 		}
 	}
 
@@ -88,10 +88,10 @@ func hashString(s string) string {
 
 // TODO: do multiple hash functions?
 
-func (r *Ring) GetN(key string, n int) ([]string, error){
-	// Hashes the key, finds the primary node using `GetNode`, 
+func (r *Ring) GetN(key string, n int) ([]string, error) {
+	// Hashes the key, finds the primary node using `GetNode`,
 	// and then walks the ring clockwise to find the next `n-1` unique node IDs.
-	//  Returns the list of `n` node IDs (hashes). 
+	//  Returns the list of `n` node IDs (hashes).
 	// Handle cases where `n` is larger than the number of nodes in the ring.
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -150,4 +150,3 @@ func (r *Ring) GetAllNodes() []rpc.NodeMeta {
 	}
 	return nodes
 }
-

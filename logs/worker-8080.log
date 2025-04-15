@@ -1,0 +1,110 @@
+mkdir -p pkg/rpc
+Generating protobuf code...
+protoc --proto_path=pkg/rpc \
+	--go_out=. --go_opt=module=no.cap/goddb  \
+	--go-grpc_out=. --go-grpc_opt=module=no.cap/goddb  \
+	pkg/rpc/dynamo.proto
+Protobuf code generated successfully.
+mkdir -p bin
+go build -o bin/worker cmd/worker/main.go
+bin/worker -port 8080 -redisport 63079 -discovery 63179
+2025/04/15 22:26:09 discovery started
+2025/04/15 22:26:09 Node localhost:8080 registered with discovery service
+2025/04/15 22:26:09 nodeKeys: [node:localhost:8080]
+2025/04/15 22:26:09 Added node localhost:8080 from discovery service
+2025/04/15 22:26:09 Node localhost:8080 initialized with 1 nodes from discovery service
+2025/04/15 22:26:09 Starting gossip protocol (interval: 10s, peers per round: 2)
+2025/04/15 22:26:09 server listening at 127.0.0.1:8080
+2025/04/15 22:26:09 replication factor: 3, write quorum: 3, read quorum: 3
+2025/04/15 22:26:09 discovery Redis: 63179
+2025/04/15 22:26:09 Node localhost:8080 starting gossip loop (interval: 10s, peers per round: 2)
+2025/04/15 22:26:19 Node localhost:8080: No other nodes to gossip with
+2025/04/15 22:26:21 Node localhost:8080: Received gossip from node localhost:8081
+2025/04/15 22:26:21 Node localhost:8080: Adding new node localhost:8081 to ring from gossip
+2025/04/15 22:26:21 Node localhost:8080: Updated ring based on gossip. New version: 2
+2025/04/15 22:26:21 Node localhost:8080: Ring after gossip: &{{{{} {0 0}} 0 0 {{} 0} {{} 0}} [544b0204d642d996a1a342762d3adadf 9f5ffc7a10e0bad054458b089947ce2f] map[544b0204d642d996a1a342762d3adadf:{{{} [] [] <nil>} localhost:8081 localhost 8081 1 [] 0} 9f5ffc7a10e0bad054458b089947ce2f:{{{} [] [] <nil>} localhost:8080 localhost 8080 1 [] 0}]}
+2025/04/15 22:26:21 Node localhost:8080: Sending 0 updated node states to localhost:8081
+2025/04/15 22:26:24 Node localhost:8080: Received gossip from node localhost:8082
+2025/04/15 22:26:24 Node localhost:8080: Adding new node localhost:8082 to ring from gossip
+2025/04/15 22:26:24 Node localhost:8080: Updated ring based on gossip. New version: 3
+2025/04/15 22:26:24 Node localhost:8080: Ring after gossip: &{{{{} {0 0}} 0 0 {{} 0} {{} 0}} [544b0204d642d996a1a342762d3adadf 9f5ffc7a10e0bad054458b089947ce2f cfe993016aed204bcee51e6f37a3657c] map[544b0204d642d996a1a342762d3adadf:{{{} [] [] <nil>} localhost:8081 localhost 8081 1 [] 0} 9f5ffc7a10e0bad054458b089947ce2f:{{{} [] [] <nil>} localhost:8080 localhost 8080 1 [] 0} cfe993016aed204bcee51e6f37a3657c:{{{} [] [] <nil>} localhost:8082 localhost 8082 1 [] 0}]}
+2025/04/15 22:26:24 Node localhost:8080: Sending 0 updated node states to localhost:8082
+2025/04/15 22:26:29 Node localhost:8080: Gossiping with peer localhost:8081
+2025/04/15 22:26:29 Node localhost:8080: Gossiping with peer localhost:8082
+2025/04/15 22:26:29 Node localhost:8080: No updates from peer localhost:8081
+2025/04/15 22:26:29 Node localhost:8080: No updates from peer localhost:8082
+2025/04/15 22:26:31 Node localhost:8080: Received gossip from node localhost:8081
+2025/04/15 22:26:31 Node localhost:8080: Ring after gossip: &{{{{} {0 0}} 0 0 {{} 0} {{} 0}} [544b0204d642d996a1a342762d3adadf 9f5ffc7a10e0bad054458b089947ce2f cfe993016aed204bcee51e6f37a3657c] map[544b0204d642d996a1a342762d3adadf:{{{} [] [] <nil>} localhost:8081 localhost 8081 1 [] 0} 9f5ffc7a10e0bad054458b089947ce2f:{{{} [] [] <nil>} localhost:8080 localhost 8080 1 [] 0} cfe993016aed204bcee51e6f37a3657c:{{{} [] [] <nil>} localhost:8082 localhost 8082 1 [] 0}]}
+2025/04/15 22:26:31 Node localhost:8080: Sending 0 updated node states to localhost:8081
+2025/04/15 22:26:34 Node localhost:8080: Received gossip from node localhost:8082
+2025/04/15 22:26:34 Node localhost:8080: Ring after gossip: &{{{{} {0 0}} 0 0 {{} 0} {{} 0}} [544b0204d642d996a1a342762d3adadf 9f5ffc7a10e0bad054458b089947ce2f cfe993016aed204bcee51e6f37a3657c] map[544b0204d642d996a1a342762d3adadf:{{{} [] [] <nil>} localhost:8081 localhost 8081 1 [] 0} 9f5ffc7a10e0bad054458b089947ce2f:{{{} [] [] <nil>} localhost:8080 localhost 8080 1 [] 0} cfe993016aed204bcee51e6f37a3657c:{{{} [] [] <nil>} localhost:8082 localhost 8082 1 [] 0}]}
+2025/04/15 22:26:34 Node localhost:8080: Sending 0 updated node states to localhost:8082
+2025/04/15 22:26:39 Node localhost:8080: Received ReplicatePut request for key 'x'
+2025/04/15 22:26:39 Node localhost:8080: Successfully stored replicated key 'x'
+2025/04/15 22:26:39 Node localhost:8080: Gossiping with peer localhost:8081
+2025/04/15 22:26:39 Node localhost:8080: Gossiping with peer localhost:8082
+2025/04/15 22:26:39 Node localhost:8080: No updates from peer localhost:8081
+2025/04/15 22:26:39 Node localhost:8080: No updates from peer localhost:8082
+2025/04/15 22:26:41 Node localhost:8080: Received gossip from node localhost:8081
+2025/04/15 22:26:41 Node localhost:8080: Ring after gossip: &{{{{} {0 0}} 0 0 {{} 0} {{} 0}} [544b0204d642d996a1a342762d3adadf 9f5ffc7a10e0bad054458b089947ce2f cfe993016aed204bcee51e6f37a3657c] map[544b0204d642d996a1a342762d3adadf:{{{} [] [] <nil>} localhost:8081 localhost 8081 1 [] 0} 9f5ffc7a10e0bad054458b089947ce2f:{{{} [] [] <nil>} localhost:8080 localhost 8080 1 [] 0} cfe993016aed204bcee51e6f37a3657c:{{{} [] [] <nil>} localhost:8082 localhost 8082 1 [] 0}]}
+2025/04/15 22:26:41 Node localhost:8080: Sending 0 updated node states to localhost:8081
+2025/04/15 22:26:44 Node localhost:8080: Received gossip from node localhost:8082
+2025/04/15 22:26:44 Node localhost:8080: Ring after gossip: &{{{{} {0 0}} 0 0 {{} 0} {{} 0}} [544b0204d642d996a1a342762d3adadf 9f5ffc7a10e0bad054458b089947ce2f cfe993016aed204bcee51e6f37a3657c] map[544b0204d642d996a1a342762d3adadf:{{{} [] [] <nil>} localhost:8081 localhost 8081 1 [] 0} 9f5ffc7a10e0bad054458b089947ce2f:{{{} [] [] <nil>} localhost:8080 localhost 8080 1 [] 0} cfe993016aed204bcee51e6f37a3657c:{{{} [] [] <nil>} localhost:8082 localhost 8082 1 [] 0}]}
+2025/04/15 22:26:44 Node localhost:8080: Sending 0 updated node states to localhost:8082
+2025/04/15 22:26:49 Node localhost:8080: Gossiping with peer localhost:8081
+2025/04/15 22:26:49 Node localhost:8080: Gossiping with peer localhost:8082
+2025/04/15 22:26:49 Node localhost:8080: No updates from peer localhost:8082
+2025/04/15 22:26:49 Node localhost:8080: No updates from peer localhost:8081
+2025/04/15 22:26:51 Node localhost:8080: Received gossip from node localhost:8081
+2025/04/15 22:26:51 Node localhost:8080: Ring after gossip: &{{{{} {0 0}} 0 0 {{} 0} {{} 0}} [544b0204d642d996a1a342762d3adadf 9f5ffc7a10e0bad054458b089947ce2f cfe993016aed204bcee51e6f37a3657c] map[544b0204d642d996a1a342762d3adadf:{{{} [] [] <nil>} localhost:8081 localhost 8081 1 [] 0} 9f5ffc7a10e0bad054458b089947ce2f:{{{} [] [] <nil>} localhost:8080 localhost 8080 1 [] 0} cfe993016aed204bcee51e6f37a3657c:{{{} [] [] <nil>} localhost:8082 localhost 8082 1 [] 0}]}
+2025/04/15 22:26:51 Node localhost:8080: Sending 0 updated node states to localhost:8081
+2025/04/15 22:26:54 Node localhost:8080: Received gossip from node localhost:8082
+2025/04/15 22:26:54 Node localhost:8080: Ring after gossip: &{{{{} {0 0}} 0 0 {{} 0} {{} 0}} [544b0204d642d996a1a342762d3adadf 9f5ffc7a10e0bad054458b089947ce2f cfe993016aed204bcee51e6f37a3657c] map[544b0204d642d996a1a342762d3adadf:{{{} [] [] <nil>} localhost:8081 localhost 8081 1 [] 0} 9f5ffc7a10e0bad054458b089947ce2f:{{{} [] [] <nil>} localhost:8080 localhost 8080 1 [] 0} cfe993016aed204bcee51e6f37a3657c:{{{} [] [] <nil>} localhost:8082 localhost 8082 1 [] 0}]}
+2025/04/15 22:26:54 Node localhost:8080: Sending 0 updated node states to localhost:8082
+2025/04/15 22:26:59 Node localhost:8080: Gossiping with peer localhost:8082
+2025/04/15 22:26:59 Node localhost:8080: Gossiping with peer localhost:8081
+2025/04/15 22:26:59 Node localhost:8080: No updates from peer localhost:8082
+2025/04/15 22:26:59 Node localhost:8080: No updates from peer localhost:8081
+2025/04/15 22:27:01 Node localhost:8080: Received gossip from node localhost:8081
+2025/04/15 22:27:01 Node localhost:8080: Ring after gossip: &{{{{} {0 0}} 0 0 {{} 0} {{} 0}} [544b0204d642d996a1a342762d3adadf 9f5ffc7a10e0bad054458b089947ce2f cfe993016aed204bcee51e6f37a3657c] map[544b0204d642d996a1a342762d3adadf:{{{} [] [] <nil>} localhost:8081 localhost 8081 1 [] 0} 9f5ffc7a10e0bad054458b089947ce2f:{{{} [] [] <nil>} localhost:8080 localhost 8080 1 [] 0} cfe993016aed204bcee51e6f37a3657c:{{{} [] [] <nil>} localhost:8082 localhost 8082 1 [] 0}]}
+2025/04/15 22:27:01 Node localhost:8080: Sending 0 updated node states to localhost:8081
+2025/04/15 22:27:04 Node localhost:8080: Received gossip from node localhost:8082
+2025/04/15 22:27:04 Node localhost:8080: Ring after gossip: &{{{{} {0 0}} 0 0 {{} 0} {{} 0}} [544b0204d642d996a1a342762d3adadf 9f5ffc7a10e0bad054458b089947ce2f cfe993016aed204bcee51e6f37a3657c] map[544b0204d642d996a1a342762d3adadf:{{{} [] [] <nil>} localhost:8081 localhost 8081 1 [] 0} 9f5ffc7a10e0bad054458b089947ce2f:{{{} [] [] <nil>} localhost:8080 localhost 8080 1 [] 0} cfe993016aed204bcee51e6f37a3657c:{{{} [] [] <nil>} localhost:8082 localhost 8082 1 [] 0}]}
+2025/04/15 22:27:04 Node localhost:8080: Sending 0 updated node states to localhost:8082
+2025/04/15 22:27:09 Node localhost:8080: Gossiping with peer localhost:8082
+2025/04/15 22:27:09 Node localhost:8080: Gossiping with peer localhost:8081
+2025/04/15 22:27:09 Node localhost:8080: No updates from peer localhost:8082
+2025/04/15 22:27:09 Node localhost:8080: No updates from peer localhost:8081
+2025/04/15 22:27:11 Node localhost:8080: Received gossip from node localhost:8081
+2025/04/15 22:27:11 Node localhost:8080: Ring after gossip: &{{{{} {0 0}} 0 0 {{} 0} {{} 0}} [544b0204d642d996a1a342762d3adadf 9f5ffc7a10e0bad054458b089947ce2f cfe993016aed204bcee51e6f37a3657c] map[544b0204d642d996a1a342762d3adadf:{{{} [] [] <nil>} localhost:8081 localhost 8081 1 [] 0} 9f5ffc7a10e0bad054458b089947ce2f:{{{} [] [] <nil>} localhost:8080 localhost 8080 1 [] 0} cfe993016aed204bcee51e6f37a3657c:{{{} [] [] <nil>} localhost:8082 localhost 8082 1 [] 0}]}
+2025/04/15 22:27:11 Node localhost:8080: Sending 0 updated node states to localhost:8081
+2025/04/15 22:27:14 Node localhost:8080: Received gossip from node localhost:8082
+2025/04/15 22:27:14 Node localhost:8080: Ring after gossip: &{{{{} {0 0}} 0 0 {{} 0} {{} 0}} [544b0204d642d996a1a342762d3adadf 9f5ffc7a10e0bad054458b089947ce2f cfe993016aed204bcee51e6f37a3657c] map[544b0204d642d996a1a342762d3adadf:{{{} [] [] <nil>} localhost:8081 localhost 8081 1 [] 0} 9f5ffc7a10e0bad054458b089947ce2f:{{{} [] [] <nil>} localhost:8080 localhost 8080 1 [] 0} cfe993016aed204bcee51e6f37a3657c:{{{} [] [] <nil>} localhost:8082 localhost 8082 1 [] 0}]}
+2025/04/15 22:27:14 Node localhost:8080: Sending 0 updated node states to localhost:8082
+2025/04/15 22:27:19 Node localhost:8080: Gossiping with peer localhost:8081
+2025/04/15 22:27:19 Node localhost:8080: Gossiping with peer localhost:8082
+2025/04/15 22:27:19 Node localhost:8080: No updates from peer localhost:8082
+2025/04/15 22:27:19 Node localhost:8080: No updates from peer localhost:8081
+2025/04/15 22:27:21 Node localhost:8080: Received gossip from node localhost:8081
+2025/04/15 22:27:21 Node localhost:8080: Ring after gossip: &{{{{} {0 0}} 0 0 {{} 0} {{} 0}} [544b0204d642d996a1a342762d3adadf 9f5ffc7a10e0bad054458b089947ce2f cfe993016aed204bcee51e6f37a3657c] map[544b0204d642d996a1a342762d3adadf:{{{} [] [] <nil>} localhost:8081 localhost 8081 1 [] 0} 9f5ffc7a10e0bad054458b089947ce2f:{{{} [] [] <nil>} localhost:8080 localhost 8080 1 [] 0} cfe993016aed204bcee51e6f37a3657c:{{{} [] [] <nil>} localhost:8082 localhost 8082 1 [] 0}]}
+2025/04/15 22:27:21 Node localhost:8080: Sending 0 updated node states to localhost:8081
+2025/04/15 22:27:24 Node localhost:8080: Received gossip from node localhost:8082
+2025/04/15 22:27:24 Node localhost:8080: Ring after gossip: &{{{{} {0 0}} 0 0 {{} 0} {{} 0}} [544b0204d642d996a1a342762d3adadf 9f5ffc7a10e0bad054458b089947ce2f cfe993016aed204bcee51e6f37a3657c] map[544b0204d642d996a1a342762d3adadf:{{{} [] [] <nil>} localhost:8081 localhost 8081 1 [] 0} 9f5ffc7a10e0bad054458b089947ce2f:{{{} [] [] <nil>} localhost:8080 localhost 8080 1 [] 0} cfe993016aed204bcee51e6f37a3657c:{{{} [] [] <nil>} localhost:8082 localhost 8082 1 [] 0}]}
+2025/04/15 22:27:24 Node localhost:8080: Sending 0 updated node states to localhost:8082
+2025/04/15 22:27:29 Node localhost:8080: Gossiping with peer localhost:8082
+2025/04/15 22:27:29 Node localhost:8080: Gossiping with peer localhost:8081
+2025/04/15 22:27:29 Node localhost:8080: No updates from peer localhost:8081
+2025/04/15 22:27:29 Node localhost:8080: No updates from peer localhost:8082
+2025/04/15 22:27:31 Node localhost:8080: Received gossip from node localhost:8081
+2025/04/15 22:27:31 Node localhost:8080: Ring after gossip: &{{{{} {0 0}} 0 0 {{} 0} {{} 0}} [544b0204d642d996a1a342762d3adadf 9f5ffc7a10e0bad054458b089947ce2f cfe993016aed204bcee51e6f37a3657c] map[544b0204d642d996a1a342762d3adadf:{{{} [] [] <nil>} localhost:8081 localhost 8081 1 [] 0} 9f5ffc7a10e0bad054458b089947ce2f:{{{} [] [] <nil>} localhost:8080 localhost 8080 1 [] 0} cfe993016aed204bcee51e6f37a3657c:{{{} [] [] <nil>} localhost:8082 localhost 8082 1 [] 0}]}
+2025/04/15 22:27:31 Node localhost:8080: Sending 0 updated node states to localhost:8081
+2025/04/15 22:27:34 Node localhost:8080: Received gossip from node localhost:8082
+2025/04/15 22:27:34 Node localhost:8080: Ring after gossip: &{{{{} {0 0}} 0 0 {{} 0} {{} 0}} [544b0204d642d996a1a342762d3adadf 9f5ffc7a10e0bad054458b089947ce2f cfe993016aed204bcee51e6f37a3657c] map[544b0204d642d996a1a342762d3adadf:{{{} [] [] <nil>} localhost:8081 localhost 8081 1 [] 0} 9f5ffc7a10e0bad054458b089947ce2f:{{{} [] [] <nil>} localhost:8080 localhost 8080 1 [] 0} cfe993016aed204bcee51e6f37a3657c:{{{} [] [] <nil>} localhost:8082 localhost 8082 1 [] 0}]}
+2025/04/15 22:27:34 Node localhost:8080: Sending 0 updated node states to localhost:8082
+2025/04/15 22:27:39 Node localhost:8080: Gossiping with peer localhost:8082
+2025/04/15 22:27:39 Node localhost:8080: Gossiping with peer localhost:8081
+2025/04/15 22:27:39 Node localhost:8080: No updates from peer localhost:8081
+2025/04/15 22:27:39 Node localhost:8080: No updates from peer localhost:8082
+2025/04/15 22:27:41 Node localhost:8080: Received gossip from node localhost:8081
+2025/04/15 22:27:41 Node localhost:8080: Ring after gossip: &{{{{} {0 0}} 0 0 {{} 0} {{} 0}} [544b0204d642d996a1a342762d3adadf 9f5ffc7a10e0bad054458b089947ce2f cfe993016aed204bcee51e6f37a3657c] map[544b0204d642d996a1a342762d3adadf:{{{} [] [] <nil>} localhost:8081 localhost 8081 1 [] 0} 9f5ffc7a10e0bad054458b089947ce2f:{{{} [] [] <nil>} localhost:8080 localhost 8080 1 [] 0} cfe993016aed204bcee51e6f37a3657c:{{{} [] [] <nil>} localhost:8082 localhost 8082 1 [] 0}]}
+2025/04/15 22:27:41 Node localhost:8080: Sending 0 updated node states to localhost:8081

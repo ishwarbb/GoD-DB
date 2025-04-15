@@ -1,0 +1,48 @@
+mkdir -p pkg/rpc
+Generating protobuf code...
+protoc --proto_path=pkg/rpc \
+	--go_out=. --go_opt=module=no.cap/goddb  \
+	--go-grpc_out=. --go-grpc_opt=module=no.cap/goddb  \
+	pkg/rpc/dynamo.proto
+Protobuf code generated successfully.
+mkdir -p bin
+go build -o bin/worker cmd/worker/main.go
+bin/worker -port 8083 -redisport 63081 -discovery 63179
+2025/04/15 22:01:38 failed to listen: listen tcp 127.0.0.1:8083: bind: address already in use
+make: *** [Makefile:44: run-worker] Error 1
+2025/04/15 22:01:42 Node localhost:8083: No other nodes to gossip with
+2025/04/15 22:01:52 Node localhost:8083: No other nodes to gossip with
+2025/04/15 22:02:02 Node localhost:8083: No other nodes to gossip with
+2025/04/15 22:02:12 Node localhost:8083: No other nodes to gossip with
+2025/04/15 22:02:22 Node localhost:8083: No other nodes to gossip with
+2025/04/15 22:02:32 Node localhost:8083: No other nodes to gossip with
+2025/04/15 22:02:42 Node localhost:8083: No other nodes to gossip with
+2025/04/15 22:02:52 Node localhost:8083: No other nodes to gossip with
+2025/04/15 22:03:02 Node localhost:8083: No other nodes to gossip with
+2025/04/15 22:03:12 Node localhost:8083: No other nodes to gossip with
+2025/04/15 22:03:22 Node localhost:8083: No other nodes to gossip with
+2025/04/15 22:03:32 Node localhost:8083: No other nodes to gossip with
+2025/04/15 22:03:42 Node localhost:8083: No other nodes to gossip with
+2025/04/15 22:03:52 Node localhost:8083: No other nodes to gossip with
+2025/04/15 22:04:02 Node localhost:8083: No other nodes to gossip with
+2025/04/15 22:04:12 Node localhost:8083: No other nodes to gossip with
+2025/04/15 22:04:22 Node localhost:8083: No other nodes to gossip with
+2025/04/15 22:04:32 Node localhost:8083: No other nodes to gossip with
+2025/04/15 22:04:42 Node localhost:8083: No other nodes to gossip with
+2025/04/15 22:04:52 Node localhost:8083: No other nodes to gossip with
+2025/04/15 22:05:02 Node localhost:8083: No other nodes to gossip with
+2025/04/15 22:05:12 Node localhost:8083: No other nodes to gossip with
+2025/04/15 22:05:22 Node localhost:8083: No other nodes to gossip with
+2025/04/15 22:05:32 Node localhost:8083: No other nodes to gossip with
+2025/04/15 22:05:42 Node localhost:8083: No other nodes to gossip with
+2025/04/15 22:05:52 Node localhost:8083: No other nodes to gossip with
+2025/04/15 22:06:02 Node localhost:8083: No other nodes to gossip with
+2025/04/15 22:06:12 Node localhost:8083: No other nodes to gossip with
+2025/04/15 22:06:22 Node localhost:8083: No other nodes to gossip with
+2025/04/15 22:06:32 Node localhost:8083: No other nodes to gossip with
+2025/04/15 22:06:42 Node localhost:8083: No other nodes to gossip with
+2025/04/15 22:06:52 Node localhost:8083: No other nodes to gossip with
+2025/04/15 22:07:02 Node localhost:8083: No other nodes to gossip with
+2025/04/15 22:07:12 Node localhost:8083: No other nodes to gossip with
+2025/04/15 22:07:22 Node localhost:8083: No other nodes to gossip with
+2025/04/15 22:07:32 Node localhost:8083: No other nodes to gossip with

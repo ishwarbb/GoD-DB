@@ -18,17 +18,27 @@ func (n *Node) Ping(ctx context.Context, in *rpc.PingRequest) (*rpc.PingResponse
 }
 
 func (n *Node) Get(ctx context.Context, in *rpc.GetRequest) (*rpc.GetResponse, error) {
-	nodeID, err := n.ring.GetNode(in.Key)
+
+	potentialNodes, err := n.ring.GetN(in.Key, n.ReplicationFactorN)
 	if err != nil {
 		return nil, err
 	}
 
-	nodeMeta, success := n.ring.GetNodeMeta(nodeID)
-	if !success {
-		return nil, fmt.Errorf("node not found in ring: %s", nodeID)
+	// find if n.meta.NodeId is in the potentialNodes
+	nodeID := ""
+	for _, node := range potentialNodes {
+		if node == n.meta.NodeId {
+			nodeID = node
+			break
+		}
 	}
 
-	if nodeID != nodeMeta.NodeId {
+	if nodeID == "" {
+		nodeMeta, success := n.ring.GetNodeMeta(potentialNodes[0])
+		if !success {
+			return nil, fmt.Errorf("node not found in ring: %s", nodeID)
+		}
+
 		return &rpc.GetResponse{
 			Status:      rpc.StatusCode_WRONG_NODE,
 			Coordinator: &n.meta,
@@ -50,20 +60,25 @@ func (n *Node) Get(ctx context.Context, in *rpc.GetRequest) (*rpc.GetResponse, e
 }
 
 func (n *Node) Put(ctx context.Context, in *rpc.PutRequest) (*rpc.PutResponse, error) {
-	nodeID, err := n.ring.GetNode(in.Key)
+	potentialNodes, err := n.ring.GetN(in.Key, n.ReplicationFactorN)
 	if err != nil {
 		return nil, err
 	}
-	fmt.Println("nodeID: ", nodeID)
-	fmt.Println("n.meta.NodeId: ", n.meta.NodeId)
-	fmt.Println("")
 
-	nodeMeta, success := n.ring.GetNodeMeta(nodeID)
-	if !success {
-		return nil, fmt.Errorf("node not found in ring: %s", nodeID)
+	// find if n.meta.NodeId is in the potentialNodes
+	nodeID := ""
+	for _, node := range potentialNodes {
+		if node == n.meta.NodeId {
+			nodeID = node
+			break
+		}
 	}
 
-	if nodeID != n.meta.NodeId {
+	if nodeID == "" {
+		nodeMeta, success := n.ring.GetNodeMeta(potentialNodes[0])
+		if !success {
+			return nil, fmt.Errorf("node not found in ring: %s", nodeID)
+		}
 		return &rpc.PutResponse{
 			Status:      rpc.StatusCode_WRONG_NODE,
 			Coordinator: &n.meta,

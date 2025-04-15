@@ -268,7 +268,7 @@ func (c *Client) Put(ctx context.Context, key string, value []byte) (time.Time, 
 	if err != nil {
 		return time.Time{}, fmt.Errorf("could not get preference list: %v", err)
 	}
-
+	log.Printf("preferenceList: %v", preferenceList)
 	targetNode := preferenceList[0].NodeId
 	triedNodes := make(map[string]bool)
 
@@ -277,7 +277,17 @@ func (c *Client) Put(ctx context.Context, key string, value []byte) (time.Time, 
 		triedNodes[targetNode] = true
 
 		ts := timestamppb.Now()
-		r, err := c.rpc.Put(ctx, &rpc.PutRequest{Key: key, Value: value, Timestamp: ts})
+
+		client, err := c.getNodeClient(ctx, targetNode)
+		if err != nil {
+			log.Printf("Failed to get client for node %s: %v", targetNode, err)
+			return time.Time{}, fmt.Errorf("could not put: %v", err)
+		}
+
+		// Set a timeout for this read operation
+		readCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		r, err := client.Put(readCtx, &rpc.PutRequest{Key: key, Value: value, Timestamp: ts})
 		if err != nil {
 			return time.Time{}, fmt.Errorf("could not put: %v", err)
 		}
@@ -287,6 +297,8 @@ func (c *Client) Put(ctx context.Context, key string, value []byte) (time.Time, 
 			return r.FinalTimestamp.AsTime(), nil
 		case rpc.StatusCode_WRONG_NODE:
 			log.Printf("WRONG_NODE: key %s should be on %v", key, r.CorrectNode)
+
+			targetNode = r.CorrectNode.NodeId
 			if targetNode == c.nodeCache.keyNodes[key] {
 				log.Printf("Key %s is already in the cache with the correct node %v", key, r.CorrectNode)
 				c.nodeCache.mu.Lock()
@@ -295,8 +307,9 @@ func (c *Client) Put(ctx context.Context, key string, value []byte) (time.Time, 
 				c.nodeCache.mu.Unlock()
 				return time.Time{}, fmt.Errorf("key already in cache with correct node")
 			}
+			log.Printf("c.nodeCache.keyNodes[key]: %v", c.nodeCache.keyNodes[key])
+			log.Printf("targetNode: %v", targetNode)
 
-			targetNode = r.CorrectNode.NodeId
 		case rpc.StatusCode_QUORUM_FAILED:
 			// The write was accepted by the coordinator but didn't achieve the required W quorum
 			log.Printf("QUORUM_FAILED: Write to key %s was accepted by coordinator %s but didn't achieve W=%d quorum",

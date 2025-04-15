@@ -17,11 +17,12 @@ func main() {
 	port := flag.Int("port", 50051, "the port to listen on")
 	redisPort := flag.Int("redisport", 63079, "the redis port")
 	replicationFactor := flag.Int("replication", 3, "replication factor (N)")
-	writeQuorum := flag.Int("writequorum", 2, "write quorum (W)")
-	readQuorum := flag.Int("readquorum", 2, "read quorum (R)")
+	writeQuorum := flag.Int("writequorum", 3, "write quorum (W)")
+	readQuorum := flag.Int("readquorum", 3, "read quorum (R)")
 	gossipInterval := flag.Duration("gossip", 10*time.Second, "gossip interval")
 	gossipPeers := flag.Int("peers", 2, "number of peers to gossip with each round")
 	enableGossip := flag.Bool("enablegossip", true, "enable gossip protocol")
+	discoveryRedis := flag.String("discovery", "localhost:63179", "Redis address for service discovery")
 	flag.Parse()
 
 	lis, err := net.Listen("tcp", fmt.Sprintf("localhost:%d", *port))
@@ -36,6 +37,7 @@ func main() {
 		ReplicationFactorN: *replicationFactor,
 		WriteQuorumW:       *writeQuorum,
 		ReadQuorumR:        *readQuorum,
+		DiscoveryRedisAddr: *discoveryRedis,
 	}
 
 	s := grpc.NewServer()
@@ -51,6 +53,7 @@ func main() {
 	log.Printf("server listening at %v", lis.Addr())
 	log.Printf("replication factor: %d, write quorum: %d, read quorum: %d",
 		n.ReplicationFactorN, n.WriteQuorumW, n.ReadQuorumR)
+	log.Printf("discovery Redis: %s", config.DiscoveryRedisAddr)
 
 	if err := s.Serve(lis); err != nil {
 		log.Fatalf("failed to serve: %v", err)
