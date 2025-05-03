@@ -7,7 +7,7 @@ PROTO_FILE := $(PROTO_DIR)/dynamo.proto
 GO_PKG := no.cap/goddb # Updated to match the actual Go module path
 BIN_DIR := bin
 
-all: worker client
+all: worker client autoclient
 
 # Generate Protocol Buffers and gRPC code
 generate-proto:

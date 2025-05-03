@@ -327,7 +327,7 @@ func (n *Node) mergeGossipData(receivedStates map[string]*rpc.NodeMeta) {
 			n.meta.NodeId, n.GetCurrentVersion())
 	}
 
-	log.Printf("Node %s: Ring after gossip: %v", n.meta.NodeId, n.ring)
+	// log.Printf("Node %s: Ring after gossip: %v", n.meta.NodeId, n.ring)
 }
 
 // registerWithDiscovery registers this node with the discovery service

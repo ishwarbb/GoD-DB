@@ -56,13 +56,17 @@ func main() {
 			}
 			key := args[1]
 			value := strings.Join(args[2:], " ")
-
+			// measure latency of put
+			start := time.Now()
 			ts, err := client.Put(context.Background(), key, []byte(value))
+			end := time.Now()
 			if err != nil {
 				fmt.Printf("Error: %v\n", err)
+				fmt.Printf("put_latency: %v\n", end.Sub(start))
 			} else {
 				fmt.Printf("Stored key '%s' with value '%s'\n", key, value)
 				fmt.Printf("Timestamp: %v\n", ts)
+				fmt.Printf("put_latency: %v\n", end.Sub(start))
 				recentKeys[key] = true
 			}
 
@@ -73,13 +77,17 @@ func main() {
 			}
 			key := args[1]
 
+			start := time.Now()
 			value, ts, err := client.Get(context.Background(), key)
+			end := time.Now()
 			if err != nil {
 				fmt.Printf("Error: %v\n", err)
+				fmt.Printf("get_latency: %v\n", end.Sub(start))
 			} else {
 				fmt.Printf("Key: %s\n", key)
 				fmt.Printf("Value: %s\n", string(value))
 				fmt.Printf("Timestamp: %v\n", ts)
+				fmt.Printf("get_latency: %v\n", end.Sub(start))
 				recentKeys[key] = true
 			}
 
@@ -95,6 +103,10 @@ func main() {
 			fmt.Println("Waiting for", waittime, "seconds...")
 			for i := 0; i < waittime; i++ {
 				time.Sleep(1 * time.Second)
+				// create a big loop to approx sleep
+				// for j := 0; j < 100000000; j++ {
+				// 	time.Sleep(1 * time.Microsecond)
+				// }
 			}
 		case "help", "h":
 			fmt.Println("Available commands:")

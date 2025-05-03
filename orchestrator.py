@@ -30,6 +30,7 @@ class ClientConfig:
 class WorkerBehavior:
     start_delay: float
     lifetime: float
+    intervals = []
 
 
 class Behavior:
@@ -67,13 +68,22 @@ def run_worker(conf: WorkerConfig, behavior: WorkerBehavior):
         f"-discovery={conf.discovery_port}",
     ]
     # worker_proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    worker_proc = subprocess.Popen(cmd)
+    # worker_proc = subprocess.Popen(cmd)
 
-    try:
-        time.sleep(behavior.lifetime)
-    finally:
+    # try:
+    #     time.sleep(behavior.lifetime)
+    # finally:
+    #     worker_proc.kill()
+    #     redis_proc.kill()
+
+    # do it for intervals
+    for interval in behavior.intervals:
+        time.sleep(interval[0])
+        worker_proc = subprocess.Popen(cmd)
+        time.sleep(interval[1])
         worker_proc.kill()
-        redis_proc.kill()
+    redis_proc.kill()
+
 
 
 def run_client(conf: ClientConfig, behavior: Behavior):
@@ -99,7 +109,7 @@ def run_client(conf: ClientConfig, behavior: Behavior):
 
 # Example usage
 if __name__ == "__main__":
-    NUM_WORKERS = 3
+    NUM_WORKERS = 5
     BASE_PORT = 60050
     BASE_REDIS = 63079
     DISCOVERY_PORT = 63179
@@ -112,24 +122,26 @@ if __name__ == "__main__":
             discovery_port=DISCOVERY_PORT
         )
         wb = WorkerBehavior(start_delay=0, lifetime=50)  # staggered start
+        wb.intervals = [[i, 50]]
         t = threading.Thread(target=run_worker, args=(wc, wb))
         t.start()
         workers.append(t)
-    time.sleep(1)
-    b1 = Behavior()
-    b1.wait(5)
-    b1.put("a", "1")
-    b1.wait(1)
-    b1.get("a")
+    # time.sleep(1)
+    # b1 = Behavior()
+    # b1.wait(5)
+    # b1.put("a", "1")
+    # b1.wait(1)
+    # b1.get("a")
 
     b2 = Behavior()
-    b2.wait(5)
+    # b2.wait(1)
     b2.put("b", "2")
     b2.get("b")
 
-    run_client(ClientConfig(), b1)
+    # run_client(ClientConfig(), b1)
 
     for _ in range(10):
+        time.sleep(1)
         run_client(ClientConfig(), b2)
 
     # Wait for all workers to finish
