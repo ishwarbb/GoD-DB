@@ -268,7 +268,7 @@ func (c *Client) Put(ctx context.Context, key string, value []byte) (time.Time, 
 	if err != nil {
 		return time.Time{}, fmt.Errorf("could not get preference list: %v", err)
 	}
-	log.Printf("preferenceList: %v", preferenceList)
+	// log.Printf("preferenceList: %v", preferenceList)
 	targetNode := preferenceList[0].NodeId
 	triedNodes := make(map[string]bool)
 

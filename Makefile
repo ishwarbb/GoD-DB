@@ -31,6 +31,10 @@ client: proto
 	mkdir -p $(BIN_DIR)
 	go build -o $(BIN_DIR)/client cmd/client/main.go
 
+autoclient: proto
+	mkdir -p $(BIN_DIR)
+	go build -o $(BIN_DIR)/autoclient cmd/autoclient/main.go
+
 # Clean up build artifacts
 clean:
 	rm -rf $(BIN_DIR) $(PROTO_DIR)/*.pb.go $(PROTO_DIR)/*_grpc.pb.go
@@ -45,6 +49,9 @@ run-worker: worker
 
 run-client: client
 	$(BIN_DIR)/client -server localhost:8080
+
+run-autoclient: autoclient
+	$(BIN_DIR)/autoclient -server localhost:8080
 
 start-redis:
 	redis-server --port $(REDIS_PORT)
