@@ -53,7 +53,8 @@ func (s *Store) Put(ctx context.Context, key string, value []byte, timestamp tim
 func (s *Store) Get(ctx context.Context, key string) (value []byte, timestamp time.Time, err error) {
 	jsonData, err := s.client.HGet(ctx, key, "data").Result()
 	if err == redis.Nil {
-		return nil, time.Time{}, fmt.Errorf("key not found: %w", err)
+		// Key not found - return empty value instead of error for more graceful handling
+		return []byte{}, time.Time{}, nil
 	} else if err != nil {
 		return nil, time.Time{}, fmt.Errorf("failed to get key: %w", err)
 	}

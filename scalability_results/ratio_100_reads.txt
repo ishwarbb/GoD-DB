@@ -1,0 +1,15 @@
+=== GoD-DB Benchmark ===
+Servers: localhost:8081,localhost:8082,localhost:8083
+Clients: 20
+Requests per client: 1000
+Read percentage: 100%
+Value size: 100 bytes
+Starting benchmark...
+[5s] Operations: 18805, Rate: 3761.00 ops/sec, Failures: 0
+
+====== Benchmark Results ======
+Duration: 5.463741485s
+Total Operations: 20000
+Operations/second: 3660.50
+Average Latency: 439.12µs
+Failed Operations: 0 (0.00%)

@@ -1,0 +1,50 @@
+FROM golang:1.20-alpine AS builder
+
+WORKDIR /app
+
+# Copy go.mod and go.sum first to leverage Docker caching
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy the source code
+COPY . .
+
+# Build the worker binary
+RUN CGO_ENABLED=0 GOOS=linux go build -o /app/bin/worker cmd/worker/main.go
+
+# Use a minimal alpine image for the final image
+FROM alpine:latest
+
+WORKDIR /app
+
+# Install dependencies
+RUN apk --no-cache add ca-certificates tzdata
+
+# Copy the binary from the builder stage
+COPY --from=builder /app/bin/worker /app/worker
+
+# Create a non-root user to run the application
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+USER appuser
+
+# Set environment variables with default values
+ENV PORT=8081 \
+    REDIS_PORT=6379 \
+    DISCOVERY_REDIS_ADDR=localhost:63179 \
+    REPLICATION_FACTOR=3 \
+    WRITE_QUORUM=2 \
+    READ_QUORUM=2 \
+    VIRTUAL_NODES=10 \
+    METRICS_PORT=9081
+
+# Expose the worker port and metrics port
+EXPOSE $PORT $METRICS_PORT
+
+# Run the worker
+CMD /app/worker -port $PORT -redisport $REDIS_PORT \
+    -discovery $DISCOVERY_REDIS_ADDR \
+    -replication $REPLICATION_FACTOR \
+    -writequorum $WRITE_QUORUM \
+    -readquorum $READ_QUORUM \
+    -virtualnodes $VIRTUAL_NODES \
+    -metricsport $METRICS_PORT 

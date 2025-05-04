@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"strings"
 	"sync"
 	"time"
 
@@ -233,8 +234,8 @@ func (n *Node) gossipLoop(interval time.Duration, k int) {
 func (n *Node) doGossipWithPeer(peerMeta rpc.NodeMeta) {
 	log.Printf("Node %s: Gossiping with peer %s", n.meta.NodeId, peerMeta.NodeId)
 
-	// Create a context with timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	// Create a context with a more lenient timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
 	// Get the peer's address
@@ -334,13 +335,41 @@ func (n *Node) mergeGossipData(receivedStates map[string]*rpc.NodeMeta) {
 // and initializes the ring with all nodes from the discovery service
 func (n *Node) registerWithDiscovery() {
 	// Connect to the discovery Redis server
-	discoveryStore, err := storage.NewStore(fmt.Sprintf("localhost:%s", n.discoveryRedisAddr))
-	log.Printf("discovery started")
+	var redisAddr string
+	if strings.Contains(n.discoveryRedisAddr, ":") {
+		// Address already has host:port format
+		redisAddr = n.discoveryRedisAddr
+	} else {
+		// Address only contains port, prepend localhost
+		redisAddr = fmt.Sprintf("localhost:%s", n.discoveryRedisAddr)
+	}
+	
+	// Add retry mechanism for discovery connection
+	maxRetries := 5
+	retryDelay := 2 * time.Second
+	var discoveryStore *storage.Store
+	var err error
+	
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		log.Printf("Connecting to discovery Redis at %s (attempt %d/%d)", redisAddr, attempt, maxRetries)
+		discoveryStore, err = storage.NewStore(redisAddr)
+		if err == nil {
+			log.Printf("Successfully connected to discovery Redis on attempt %d", attempt)
+			break
+		}
+		
+		log.Printf("Failed to connect to discovery Redis at %s: %v", redisAddr, err)
+		if attempt < maxRetries {
+			log.Printf("Retrying in %v...", retryDelay)
+			time.Sleep(retryDelay)
+			// Increase delay for next attempt
+			retryDelay *= 2
+		}
+	}
+	
 	if err != nil {
-		log.Printf("Failed to connect to discovery Redis at %s: %v", n.discoveryRedisAddr, err)
-		// Continue with local configuration as fallback
+		log.Printf("All connection attempts to discovery Redis failed")
 		log.Printf("Continuing with local node only")
-
 		// Add self to ring as fallback with virtual nodes
 		n.ring.AddNode(n.meta, n.VirtualNodesCount)
 		return

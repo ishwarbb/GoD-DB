@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"net/http"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"no.cap/goddb/pkg/node"
 	"no.cap/goddb/pkg/rpc"
 
@@ -24,7 +26,13 @@ func main() {
 	gossipPeers := flag.Int("peers", 2, "number of peers to gossip with each round")
 	enableGossip := flag.Bool("enablegossip", true, "enable gossip protocol")
 	discoveryRedis := flag.String("discovery", "localhost:63179", "Redis address for service discovery")
+	metricsPort := flag.Int("metricsport", 0, "port for Prometheus metrics (defaults to port+1000)")
 	flag.Parse()
+
+	// Set default metrics port if not specified
+	if *metricsPort == 0 {
+		*metricsPort = *port + 1000
+	}
 
 	lis, err := net.Listen("tcp", fmt.Sprintf("localhost:%d", *port))
 	if err != nil {
@@ -46,19 +54,32 @@ func main() {
 	n := node.NewNode(config)
 	rpc.RegisterNodeServiceServer(s, n)
 
+	// Start metrics server
+	go startMetricsServer(*metricsPort)
+
 	// Start gossip protocol if enabled
 	if *enableGossip {
 		log.Printf("Starting gossip protocol (interval: %v, peers per round: %d)", *gossipInterval, *gossipPeers)
 		n.StartGossip(*gossipInterval, *gossipPeers)
 	}
 
-	log.Printf("server listening at %v", lis.Addr())
-	log.Printf("replication factor: %d, write quorum: %d, read quorum: %d",
+	log.Printf("Server listening at %v", lis.Addr())
+	log.Printf("Metrics available at http://localhost:%d/metrics", *metricsPort)
+	log.Printf("Replication factor: %d, write quorum: %d, read quorum: %d",
 		n.ReplicationFactorN, n.WriteQuorumW, n.ReadQuorumR)
-	log.Printf("virtual nodes per physical node: %d", config.VirtualNodesCount)
-	log.Printf("discovery Redis: %s", config.DiscoveryRedisAddr)
+	log.Printf("Virtual nodes per physical node: %d", config.VirtualNodesCount)
+	log.Printf("Discovery Redis: %s", config.DiscoveryRedisAddr)
 
 	if err := s.Serve(lis); err != nil {
 		log.Fatalf("failed to serve: %v", err)
+	}
+}
+
+// Start Prometheus metrics HTTP server
+func startMetricsServer(port int) {
+	http.Handle("/metrics", promhttp.Handler())
+	log.Printf("Starting metrics server on :%d", port)
+	if err := http.ListenAndServe(fmt.Sprintf(":%d", port), nil); err != nil {
+		log.Printf("Metrics server error: %v", err)
 	}
 }

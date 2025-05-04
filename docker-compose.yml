@@ -1,0 +1,156 @@
+version: '3'
+
+services:
+  redis-discovery:
+    image: redis:latest
+    ports:
+      - "63179:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis-discovery-data:/data
+    networks:
+      - goddb-network
+
+  # Redis instances for workers
+  redis1:
+    image: redis:latest
+    ports:
+      - "63079:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis1-data:/data
+    networks:
+      - goddb-network
+
+  redis2:
+    image: redis:latest
+    ports:
+      - "63080:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis2-data:/data
+    networks:
+      - goddb-network
+
+  redis3:
+    image: redis:latest
+    ports:
+      - "63081:6379" 
+    command: redis-server --appendonly yes
+    volumes:
+      - redis3-data:/data
+    networks:
+      - goddb-network
+
+  # Worker nodes
+  worker1:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    ports:
+      - "8081:8081"
+      - "9081:9081"  # Metrics port
+    environment:
+      - PORT=8081
+      - REDIS_PORT=6379
+      - DISCOVERY_REDIS_ADDR=redis-discovery:6379
+      - REPLICATION_FACTOR=3
+      - WRITE_QUORUM=2
+      - READ_QUORUM=2
+      - VIRTUAL_NODES=50
+      - METRICS_PORT=9081
+    depends_on:
+      - redis1
+      - redis-discovery
+    networks:
+      - goddb-network
+
+  worker2:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    ports:
+      - "8082:8082"
+      - "9082:9082"  # Metrics port
+    environment:
+      - PORT=8082
+      - REDIS_PORT=6379
+      - DISCOVERY_REDIS_ADDR=redis-discovery:6379
+      - REPLICATION_FACTOR=3
+      - WRITE_QUORUM=2
+      - READ_QUORUM=2
+      - VIRTUAL_NODES=50
+      - METRICS_PORT=9082
+    depends_on:
+      - redis2
+      - redis-discovery
+      - worker1
+    networks:
+      - goddb-network
+
+  worker3:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    ports:
+      - "8083:8083"
+      - "9083:9083"  # Metrics port
+    environment:
+      - PORT=8083
+      - REDIS_PORT=6379
+      - DISCOVERY_REDIS_ADDR=redis-discovery:6379
+      - REPLICATION_FACTOR=3
+      - WRITE_QUORUM=2
+      - READ_QUORUM=2
+      - VIRTUAL_NODES=50
+      - METRICS_PORT=9083
+    depends_on:
+      - redis3
+      - redis-discovery
+      - worker1
+    networks:
+      - goddb-network
+
+  # Prometheus for metrics collection
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    networks:
+      - goddb-network
+    depends_on:
+      - worker1
+      - worker2
+      - worker3
+
+  # Grafana for visualization
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - ./grafana/dashboards:/var/lib/grafana/dashboards
+    networks:
+      - goddb-network
+    depends_on:
+      - prometheus
+
+networks:
+  goddb-network:
+    driver: bridge
+
+volumes:
+  redis-discovery-data:
+  redis1-data:
+  redis2-data:
+  redis3-data:
+  prometheus-data:
+  grafana-data: 

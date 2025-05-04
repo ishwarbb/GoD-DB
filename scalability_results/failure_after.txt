@@ -1,0 +1,29 @@
+=== GoD-DB Benchmark ===
+Servers: localhost:8081,localhost:8082,localhost:8083,localhost:8084,localhost:8085
+Clients: 20
+Requests per client: 500
+Read percentage: 50%
+Value size: 100 bytes
+Starting benchmark...
+[5s] Operations: 8125, Rate: 1625.00 ops/sec, Failures: 3380
+[10s] Operations: 8252, Rate: 25.40 ops/sec, Failures: 3507
+[15s] Operations: 8380, Rate: 25.60 ops/sec, Failures: 3635
+[20s] Operations: 8509, Rate: 25.80 ops/sec, Failures: 3764
+[25s] Operations: 8637, Rate: 25.60 ops/sec, Failures: 3892
+[30s] Operations: 8765, Rate: 25.60 ops/sec, Failures: 4020
+[35s] Operations: 8893, Rate: 25.60 ops/sec, Failures: 4148
+[40s] Operations: 9021, Rate: 25.60 ops/sec, Failures: 4276
+[45s] Operations: 9149, Rate: 25.60 ops/sec, Failures: 4404
+[50s] Operations: 9277, Rate: 25.60 ops/sec, Failures: 4532
+[55s] Operations: 9405, Rate: 25.60 ops/sec, Failures: 4660
+[1m0s] Operations: 9533, Rate: 25.60 ops/sec, Failures: 4788
+[1m5s] Operations: 9660, Rate: 25.40 ops/sec, Failures: 4915
+[1m10s] Operations: 9789, Rate: 25.80 ops/sec, Failures: 5044
+[1m15s] Operations: 9915, Rate: 25.20 ops/sec, Failures: 5170
+
+====== Benchmark Results ======
+Duration: 1m18.307493824s
+Total Operations: 10000
+Operations/second: 127.70
+Average Latency: 30.720313ms
+Failed Operations: 5255 (52.55%)

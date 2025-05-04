@@ -55,6 +55,7 @@ message GetRequest {
     NodeMeta coordinator = 2;
     google.protobuf.Timestamp final_timestamp = 3;
     NodeMeta correct_node = 5; // If status == WRONG_NODE ???
+    string message = 6; // Error or status message
   }
 
 message ReplicatePutRequest {

@@ -50,6 +50,14 @@ func (n *Node) Get(ctx context.Context, in *rpc.GetRequest) (*rpc.GetResponse, e
 	if err != nil {
 		return nil, err
 	}
+	
+	// If we got an empty value, it means the key was not found
+	if len(val) == 0 {
+		return &rpc.GetResponse{
+			Status:      rpc.StatusCode_NOT_FOUND,
+			Coordinator: &n.meta,
+		}, nil
+	}
 
 	return &rpc.GetResponse{
 		Value:       val,
@@ -104,10 +112,21 @@ func (n *Node) Put(ctx context.Context, in *rpc.PutRequest) (*rpc.PutResponse, e
 	nodeIDs, err := n.ring.GetN(in.Key, n.ReplicationFactorN)
 	if err != nil {
 		log.Printf("Node %s: Failed to get preference list for key '%s': %v", n.meta.NodeId, in.Key, err)
+		
+		// If write quorum is 1, we can still succeed with just local storage
+		if n.WriteQuorumW <= 1 {
+			return &rpc.PutResponse{
+				Status:         rpc.StatusCode_OK, 
+				Coordinator:    &n.meta,
+				FinalTimestamp: in.Timestamp,
+			}, nil
+		}
+		
+		// Otherwise, return an error for quorum failure
 		return &rpc.PutResponse{
-			Status:         rpc.StatusCode_OK, // At least local storage succeeded
-			Coordinator:    &n.meta,
-			FinalTimestamp: in.Timestamp,
+			Status:      rpc.StatusCode_ERROR,
+			Coordinator: &n.meta,
+			Message:     "Failed to achieve write quorum",
 		}, nil
 	}
 
@@ -169,7 +188,7 @@ func (n *Node) Put(ctx context.Context, in *rpc.PutRequest) (*rpc.PutResponse, e
 			client := rpc.NewNodeServiceClient(conn)
 
 			// Use a timeout context for the RPC call
-			callCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			callCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 			defer cancel()
 
 			response, err := client.ReplicatePut(callCtx, replicateReq)
@@ -197,31 +216,36 @@ func (n *Node) Put(ctx context.Context, in *rpc.PutRequest) (*rpc.PutResponse, e
 	for response := range resultsChan {
 		if response.Status == rpc.StatusCode_OK {
 			successCount++
-
-			// If we've reached the write quorum, we can return success
+			
+			// If we've achieved write quorum, we can return success immediately
 			if successCount >= n.WriteQuorumW {
-				// We could break here, but let's wait for all responses for completeness
-				break
+				return &rpc.PutResponse{
+					Status:         rpc.StatusCode_OK,
+					Coordinator:    &n.meta,
+					FinalTimestamp: in.Timestamp,
+				}, nil
 			}
 		}
 	}
 
-	// Check if we achieved quorum
+	// After collecting all responses, check if we achieved write quorum
 	if successCount >= n.WriteQuorumW {
 		return &rpc.PutResponse{
 			Status:         rpc.StatusCode_OK,
 			Coordinator:    &n.meta,
 			FinalTimestamp: in.Timestamp,
 		}, nil
-	} else {
-		log.Printf("Node %s: Write quorum not achieved for key '%s'. Got %d successes, needed %d",
-			n.meta.NodeId, in.Key, successCount, n.WriteQuorumW)
-		return &rpc.PutResponse{
-			Status:         rpc.StatusCode_QUORUM_FAILED,
-			Coordinator:    &n.meta,
-			FinalTimestamp: in.Timestamp,
-		}, nil
 	}
+
+	// We failed to achieve write quorum
+	log.Printf("Node %s: Failed to achieve write quorum for key '%s'. Required: %d, Got: %d",
+		n.meta.NodeId, in.Key, n.WriteQuorumW, successCount)
+	
+	return &rpc.PutResponse{
+		Status:      rpc.StatusCode_ERROR,
+		Coordinator: &n.meta,
+		Message:     fmt.Sprintf("Failed to achieve write quorum: required %d, got %d", n.WriteQuorumW, successCount),
+	}, nil
 }
 
 func (n *Node) GetPreferenceList(ctx context.Context, in *rpc.GetPreferenceListRequest) (*rpc.GetPreferenceListResponse, error) {
