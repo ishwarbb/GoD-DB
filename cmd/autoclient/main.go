@@ -62,11 +62,11 @@ func main() {
 			end := time.Now()
 			if err != nil {
 				fmt.Printf("Error: %v\n", err)
-				fmt.Printf("put_latency: %v\n", end.Sub(start))
+				fmt.Printf("put_latency: %v\n", end.Sub(start).Microseconds())
 			} else {
 				fmt.Printf("Stored key '%s' with value '%s'\n", key, value)
 				fmt.Printf("Timestamp: %v\n", ts)
-				fmt.Printf("put_latency: %v\n", end.Sub(start))
+				fmt.Printf("put_latency: %v\n", end.Sub(start).Microseconds())
 				recentKeys[key] = true
 			}
 
@@ -82,12 +82,12 @@ func main() {
 			end := time.Now()
 			if err != nil {
 				fmt.Printf("Error: %v\n", err)
-				fmt.Printf("get_latency: %v\n", end.Sub(start))
+				fmt.Printf("get_latency: %v\n", end.Sub(start).Microseconds())
 			} else {
 				fmt.Printf("Key: %s\n", key)
 				fmt.Printf("Value: %s\n", string(value))
 				fmt.Printf("Timestamp: %v\n", ts)
-				fmt.Printf("get_latency: %v\n", end.Sub(start))
+				fmt.Printf("get_latency: %v\n", end.Sub(start).Microseconds())
 				recentKeys[key] = true
 			}
 
