@@ -70,6 +70,24 @@ message ReplicatePutResponse {
   string node_id = 2; // Replica node reporting status
 }
 
+// New message types for Hinted Handoff
+message HintedHandoffEntry {
+  string key = 1;
+  bytes value = 2;
+  google.protobuf.Timestamp timestamp = 3;
+  string target_node_id = 4; // The node that should eventually receive this data
+  google.protobuf.Timestamp hint_created_at = 5; // When this hint was created
+}
+
+message ReplayHintRequest {
+  HintedHandoffEntry hint = 1;
+}
+
+message ReplayHintResponse {
+  StatusCode status = 1;
+  string message = 2;
+}
+
 message GossipRequest {
   NodeMeta sender_node = 1; // Metadata of the node sending the gossip
   map<string, NodeMeta> node_states = 2; // Sender's view of the cluster (NodeID -> Meta)
@@ -86,6 +104,7 @@ service NodeService {
     rpc GetPreferenceList(GetPreferenceListRequest) returns (GetPreferenceListResponse);
     rpc ReplicatePut(ReplicatePutRequest) returns (ReplicatePutResponse);
     rpc Gossip(GossipRequest) returns (GossipResponse);
+    rpc ReplayHint(ReplayHintRequest) returns (ReplayHintResponse);
     // Add more RPCs in later iterations
 }
 

@@ -23,15 +23,18 @@ func main() {
 	readQuorum := flag.Int("readquorum", 3, "read quorum (R)")
 	virtualNodes := flag.Int("virtualnodes", 10, "number of virtual nodes per physical node")
 	gossipInterval := flag.Duration("gossip", 10*time.Second, "gossip interval")
-	gossipPeers := flag.Int("peers", 2, "number of peers to gossip with each round")
-	enableGossip := flag.Bool("enablegossip", true, "enable gossip protocol")
-	discoveryRedis := flag.String("discovery", "localhost:63179", "Redis address for service discovery")
-	metricsPort := flag.Int("metricsport", 0, "port for Prometheus metrics (defaults to port+1000)")
+	gossipPeers := flag.Int("peers", 2, "number of peers to gossip with")
+	metricsPort := flag.Int("metrics", 2112, "port for Prometheus metrics")
+	discoveryRedisAddress := flag.String("discovery", "localhost:63179", "redis address for discovery")
+	enableHints := flag.Bool("enablehints", false, "enable hinted handoff")
+	hintInterval := flag.Duration("hintinterval", 30*time.Second, "interval to process hints")
+	httpPort := flag.Int("httpport", 0, "port for HTTP API (defaults to gRPC port + 1000)")
+
 	flag.Parse()
 
-	// Set default metrics port if not specified
-	if *metricsPort == 0 {
-		*metricsPort = *port + 1000
+	// If HTTP port not specified, default to gRPC port + 1000
+	if *httpPort == 0 {
+		*httpPort = *port + 1000
 	}
 
 	lis, err := net.Listen("tcp", fmt.Sprintf("localhost:%d", *port))
@@ -47,7 +50,7 @@ func main() {
 		WriteQuorumW:       *writeQuorum,
 		ReadQuorumR:        *readQuorum,
 		VirtualNodesCount:  *virtualNodes,
-		DiscoveryRedisAddr: *discoveryRedis,
+		DiscoveryRedisAddr: *discoveryRedisAddress,
 	}
 
 	s := grpc.NewServer()
@@ -58,9 +61,21 @@ func main() {
 	go startMetricsServer(*metricsPort)
 
 	// Start gossip protocol if enabled
-	if *enableGossip {
+	if *gossipPeers > 0 {
 		log.Printf("Starting gossip protocol (interval: %v, peers per round: %d)", *gossipInterval, *gossipPeers)
 		n.StartGossip(*gossipInterval, *gossipPeers)
+	}
+
+	// Start hinted handoff processor if enabled
+	if *enableHints {
+		log.Printf("Starting hinted handoff processor (interval: %v)", *hintInterval)
+		n.StartHintProcessor(*hintInterval)
+	}
+
+	// Start HTTP server
+	err = n.StartHTTPServer(*httpPort)
+	if err != nil {
+		log.Fatalf("Failed to start HTTP server: %v", err)
 	}
 
 	log.Printf("Server listening at %v", lis.Addr())

@@ -152,6 +152,9 @@ func (n *Node) Put(ctx context.Context, in *rpc.PutRequest) (*rpc.PutResponse, e
 
 	// Create a channel for collecting results from replica nodes
 	resultsChan := make(chan *rpc.ReplicatePutResponse, len(replicaNodes))
+	
+	// Create a channel for collecting failed nodes for hinted handoff
+	failedNodes := make(chan *rpc.NodeMeta, len(replicaNodes))
 
 	// Use WaitGroup to track goroutines
 	var wg sync.WaitGroup
@@ -181,6 +184,8 @@ func (n *Node) Put(ctx context.Context, in *rpc.PutRequest) (*rpc.PutResponse, e
 					Status: rpc.StatusCode_ERROR,
 					NodeId: replica.NodeId,
 				}
+				// Add this node to the failed nodes for hinted handoff
+				failedNodes <- replica
 				return
 			}
 
@@ -198,6 +203,8 @@ func (n *Node) Put(ctx context.Context, in *rpc.PutRequest) (*rpc.PutResponse, e
 					Status: rpc.StatusCode_ERROR,
 					NodeId: replica.NodeId,
 				}
+				// Add this node to the failed nodes for hinted handoff
+				failedNodes <- replica
 				return
 			}
 
@@ -206,10 +213,11 @@ func (n *Node) Put(ctx context.Context, in *rpc.PutRequest) (*rpc.PutResponse, e
 		}(replicaNode)
 	}
 
-	// Create goroutine to wait for all replications and close the channel
+	// Create goroutine to wait for all replications and close the channels
 	go func() {
 		wg.Wait()
 		close(resultsChan)
+		close(failedNodes)
 	}()
 
 	// Collect responses and check for quorum
@@ -219,12 +227,38 @@ func (n *Node) Put(ctx context.Context, in *rpc.PutRequest) (*rpc.PutResponse, e
 			
 			// If we've achieved write quorum, we can return success immediately
 			if successCount >= n.WriteQuorumW {
+				// Still process any hints in the background
+				go func() {
+					// Process any failed nodes for hinted handoff
+					for failedNode := range failedNodes {
+						err := n.store.StoreHint(context.Background(), failedNode.NodeId, in.Key, in.Value, in.Timestamp.AsTime())
+						if err != nil {
+							log.Printf("Node %s: Failed to store hint for node %s: %v", 
+								n.meta.NodeId, failedNode.NodeId, err)
+						}
+					}
+				}()
+				
 				return &rpc.PutResponse{
 					Status:         rpc.StatusCode_OK,
 					Coordinator:    &n.meta,
 					FinalTimestamp: in.Timestamp,
 				}, nil
 			}
+		}
+	}
+
+	// Process any failed nodes for hinted handoff
+	var failedNodeList []*rpc.NodeMeta
+	for failedNode := range failedNodes {
+		failedNodeList = append(failedNodeList, failedNode)
+		err := n.store.StoreHint(context.Background(), failedNode.NodeId, in.Key, in.Value, in.Timestamp.AsTime())
+		if err != nil {
+			log.Printf("Node %s: Failed to store hint for node %s: %v", 
+				n.meta.NodeId, failedNode.NodeId, err)
+		} else {
+			log.Printf("Node %s: Stored hint for node %s, key %s", 
+				n.meta.NodeId, failedNode.NodeId, in.Key)
 		}
 	}
 
@@ -238,13 +272,17 @@ func (n *Node) Put(ctx context.Context, in *rpc.PutRequest) (*rpc.PutResponse, e
 	}
 
 	// We failed to achieve write quorum
-	log.Printf("Node %s: Failed to achieve write quorum for key '%s'. Required: %d, Got: %d",
-		n.meta.NodeId, in.Key, n.WriteQuorumW, successCount)
+	failedMsg := fmt.Sprintf("Failed to achieve write quorum: required %d, got %d", n.WriteQuorumW, successCount)
+	if len(failedNodeList) > 0 {
+		failedMsg += fmt.Sprintf(" (stored %d hints for unavailable nodes)", len(failedNodeList))
+	}
+	
+	log.Printf("Node %s: %s", n.meta.NodeId, failedMsg)
 	
 	return &rpc.PutResponse{
 		Status:      rpc.StatusCode_ERROR,
 		Coordinator: &n.meta,
-		Message:     fmt.Sprintf("Failed to achieve write quorum: required %d, got %d", n.WriteQuorumW, successCount),
+		Message:     failedMsg,
 	}, nil
 }
 
@@ -331,6 +369,64 @@ func (n *Node) Gossip(ctx context.Context, req *rpc.GossipRequest) (*rpc.GossipR
 		n.meta.NodeId, len(response.UpdatedNodeStates), req.SenderNode.NodeId)
 
 	return response, nil
+}
+
+// ReplayHint handles a request to replay a hinted handoff
+func (n *Node) ReplayHint(ctx context.Context, req *rpc.ReplayHintRequest) (*rpc.ReplayHintResponse, error) {
+	hint := req.Hint
+	log.Printf("Node %s: Processing hint replay for key %s (target node: %s, created at: %s)",
+		n.meta.NodeId, hint.Key, hint.TargetNodeId, hint.HintCreatedAt.AsTime().Format(time.RFC3339))
+
+	// Verify this node is the intended recipient of the hint
+	if hint.TargetNodeId != n.meta.NodeId {
+		log.Printf("Node %s: Rejecting hint for key %s - intended for node %s", 
+			n.meta.NodeId, hint.Key, hint.TargetNodeId)
+		return &rpc.ReplayHintResponse{
+			Status:  rpc.StatusCode_ERROR,
+			Message: "Hint intended for different node",
+		}, nil
+	}
+
+	// Verify key belongs on this node
+	potentialNodes, err := n.ring.GetN(hint.Key, n.ReplicationFactorN)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get preference list for key: %w", err)
+	}
+
+	// Check if this node is in the preference list
+	nodeInPreference := false
+	for _, nodeID := range potentialNodes {
+		if nodeID == n.meta.NodeId {
+			nodeInPreference = true
+			break
+		}
+	}
+
+	if !nodeInPreference {
+		log.Printf("Node %s: Rejecting hint for key %s - no longer responsible for this key", 
+			n.meta.NodeId, hint.Key)
+		return &rpc.ReplayHintResponse{
+			Status:  rpc.StatusCode_WRONG_NODE,
+			Message: "Key no longer belongs on this node",
+		}, nil
+	}
+
+	// Store the value in the local store
+	err = n.store.Put(ctx, hint.Key, hint.Value, hint.Timestamp.AsTime())
+	if err != nil {
+		log.Printf("Node %s: Failed to store hinted value for key %s: %v", 
+			n.meta.NodeId, hint.Key, err)
+		return &rpc.ReplayHintResponse{
+			Status:  rpc.StatusCode_ERROR,
+			Message: fmt.Sprintf("Failed to store value: %v", err),
+		}, nil
+	}
+
+	log.Printf("Node %s: Successfully processed hint for key %s", n.meta.NodeId, hint.Key)
+	return &rpc.ReplayHintResponse{
+		Status:  rpc.StatusCode_OK,
+		Message: "Hint processed successfully",
+	}, nil
 }
 
 // Additional RPC handlers will be added here

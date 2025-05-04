@@ -25,6 +25,7 @@ const (
 	NodeService_GetPreferenceList_FullMethodName = "/rpc.NodeService/GetPreferenceList"
 	NodeService_ReplicatePut_FullMethodName      = "/rpc.NodeService/ReplicatePut"
 	NodeService_Gossip_FullMethodName            = "/rpc.NodeService/Gossip"
+	NodeService_ReplayHint_FullMethodName        = "/rpc.NodeService/ReplayHint"
 )
 
 // NodeServiceClient is the client API for NodeService service.
@@ -37,6 +38,7 @@ type NodeServiceClient interface {
 	GetPreferenceList(ctx context.Context, in *GetPreferenceListRequest, opts ...grpc.CallOption) (*GetPreferenceListResponse, error)
 	ReplicatePut(ctx context.Context, in *ReplicatePutRequest, opts ...grpc.CallOption) (*ReplicatePutResponse, error)
 	Gossip(ctx context.Context, in *GossipRequest, opts ...grpc.CallOption) (*GossipResponse, error)
+	ReplayHint(ctx context.Context, in *ReplayHintRequest, opts ...grpc.CallOption) (*ReplayHintResponse, error)
 }
 
 type nodeServiceClient struct {
@@ -107,6 +109,16 @@ func (c *nodeServiceClient) Gossip(ctx context.Context, in *GossipRequest, opts 
 	return out, nil
 }
 
+func (c *nodeServiceClient) ReplayHint(ctx context.Context, in *ReplayHintRequest, opts ...grpc.CallOption) (*ReplayHintResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ReplayHintResponse)
+	err := c.cc.Invoke(ctx, NodeService_ReplayHint_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // NodeServiceServer is the server API for NodeService service.
 // All implementations must embed UnimplementedNodeServiceServer
 // for forward compatibility.
@@ -117,6 +129,7 @@ type NodeServiceServer interface {
 	GetPreferenceList(context.Context, *GetPreferenceListRequest) (*GetPreferenceListResponse, error)
 	ReplicatePut(context.Context, *ReplicatePutRequest) (*ReplicatePutResponse, error)
 	Gossip(context.Context, *GossipRequest) (*GossipResponse, error)
+	ReplayHint(context.Context, *ReplayHintRequest) (*ReplayHintResponse, error)
 	mustEmbedUnimplementedNodeServiceServer()
 }
 
@@ -144,6 +157,9 @@ func (UnimplementedNodeServiceServer) ReplicatePut(context.Context, *ReplicatePu
 }
 func (UnimplementedNodeServiceServer) Gossip(context.Context, *GossipRequest) (*GossipResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Gossip not implemented")
+}
+func (UnimplementedNodeServiceServer) ReplayHint(context.Context, *ReplayHintRequest) (*ReplayHintResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ReplayHint not implemented")
 }
 func (UnimplementedNodeServiceServer) mustEmbedUnimplementedNodeServiceServer() {}
 func (UnimplementedNodeServiceServer) testEmbeddedByValue()                     {}
@@ -274,6 +290,24 @@ func _NodeService_Gossip_Handler(srv interface{}, ctx context.Context, dec func(
 	return interceptor(ctx, in, info, handler)
 }
 
+func _NodeService_ReplayHint_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReplayHintRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(NodeServiceServer).ReplayHint(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: NodeService_ReplayHint_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(NodeServiceServer).ReplayHint(ctx, req.(*ReplayHintRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // NodeService_ServiceDesc is the grpc.ServiceDesc for NodeService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -304,6 +338,10 @@ var NodeService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Gossip",
 			Handler:    _NodeService_Gossip_Handler,
+		},
+		{
+			MethodName: "ReplayHint",
+			Handler:    _NodeService_ReplayHint_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

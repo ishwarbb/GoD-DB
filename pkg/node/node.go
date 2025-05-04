@@ -445,3 +445,101 @@ func scanKeys(store *storage.Store, pattern string) ([]string, error) {
 	cmd := store.Client().Keys(ctx, pattern)
 	return cmd.Result()
 }
+
+// StartHintProcessor starts a background goroutine that periodically checks for and processes hints
+func (n *Node) StartHintProcessor(interval time.Duration) {
+	go n.hintProcessorLoop(interval)
+}
+
+// hintProcessorLoop runs in a separate goroutine and periodically checks for and processes hints
+func (n *Node) hintProcessorLoop(interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	log.Printf("Node %s starting hint processor loop (interval: %v)", n.meta.NodeId, interval)
+
+	for {
+		// Wait for the next tick
+		<-ticker.C
+
+		// Get all nodes from the ring
+		allNodes := n.ring.GetAllNodes()
+
+		// Process hints for each node
+		for _, nodeMeta := range allNodes {
+			// Skip self
+			if nodeMeta.NodeId == n.meta.NodeId {
+				continue
+			}
+
+			// Process hints for this node
+			go n.processHintsForNode(nodeMeta)
+		}
+	}
+}
+
+// processHintsForNode processes all hints stored for a specific node
+func (n *Node) processHintsForNode(nodeMeta rpc.NodeMeta) {
+	// Get all hints for this node
+	hints, err := n.store.GetHintsForNode(context.Background(), nodeMeta.NodeId)
+	if err != nil {
+		log.Printf("Node %s: Failed to get hints for node %s: %v", n.meta.NodeId, nodeMeta.NodeId, err)
+		return
+	}
+
+	// If there are no hints, skip
+	if len(hints) == 0 {
+		return
+	}
+
+	log.Printf("Node %s: Found %d hints to process for node %s", n.meta.NodeId, len(hints), nodeMeta.NodeId)
+
+	// Get a connection to the node
+	nodeAddr := fmt.Sprintf("%s:%d", nodeMeta.Ip, nodeMeta.Port)
+	conn, err := n.connMgr.GetConnection(nodeAddr)
+	if err != nil {
+		log.Printf("Node %s: Failed to connect to node %s: %v", n.meta.NodeId, nodeMeta.NodeId, err)
+		return
+	}
+
+	// Create client
+	client := rpc.NewNodeServiceClient(conn)
+
+	// Process each hint
+	for _, hint := range hints {
+		// Create a context with timeout
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		// Create the request
+		req := &rpc.ReplayHintRequest{
+			Hint: hint,
+		}
+
+		// Make the RPC call
+		resp, err := client.ReplayHint(ctx, req)
+		if err != nil {
+			log.Printf("Node %s: Failed to replay hint for key %s to node %s: %v", 
+				n.meta.NodeId, hint.Key, hint.TargetNodeId, err)
+			continue
+		}
+
+		// Check the response
+		if resp.Status != rpc.StatusCode_OK {
+			log.Printf("Node %s: Failed to replay hint for key %s to node %s: %s", 
+				n.meta.NodeId, hint.Key, hint.TargetNodeId, resp.Message)
+			continue
+		}
+
+		// Hint was successfully processed, delete it
+		err = n.store.DeleteHint(context.Background(), hint.TargetNodeId, hint.Key)
+		if err != nil {
+			log.Printf("Node %s: Failed to delete hint for key %s to node %s: %v", 
+				n.meta.NodeId, hint.Key, hint.TargetNodeId, err)
+			continue
+		}
+
+		log.Printf("Node %s: Successfully replayed hint for key %s to node %s", 
+			n.meta.NodeId, hint.Key, hint.TargetNodeId)
+	}
+}

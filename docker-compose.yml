@@ -59,6 +59,8 @@ services:
       - READ_QUORUM=2
       - VIRTUAL_NODES=50
       - METRICS_PORT=9081
+      - HINT_INTERVAL=30s
+      - ENABLE_HINTS=true
     depends_on:
       - redis1
       - redis-discovery
@@ -81,6 +83,8 @@ services:
       - READ_QUORUM=2
       - VIRTUAL_NODES=50
       - METRICS_PORT=9082
+      - HINT_INTERVAL=30s
+      - ENABLE_HINTS=true
     depends_on:
       - redis2
       - redis-discovery
@@ -104,6 +108,8 @@ services:
       - READ_QUORUM=2
       - VIRTUAL_NODES=50
       - METRICS_PORT=9083
+      - HINT_INTERVAL=30s
+      - ENABLE_HINTS=true
     depends_on:
       - redis3
       - redis-discovery
